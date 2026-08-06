@@ -787,23 +787,19 @@ function nextUpText() {
   }
 
   const next = queueSort()[0];
-  if (next) {
-    if (matchIsReady(next)) {
-      return `Next up: ${next.teamA} vs ${next.teamB}`;
-    }
-  }
-
-  const queued = queueSort()[0];
-  if (!queued) {
+  if (!next) {
     return "Next up: waiting for teams to finish.";
   }
-
-  const busyTeams = busyReason(queued);
-  if (busyTeams.length === 0) {
-    return `Next up: ${queued.teamA} vs ${queued.teamB}`;
+  if (matchIsReady(next)) {
+    return `Next up: ${next.teamA} vs ${next.teamB}`;
   }
 
-  return `Next up: ${queued.teamA} vs ${queued.teamB} (waiting on ${busyTeams.join(" and ")})`;
+  const busyTeams = busyReason(next);
+  if (busyTeams.length === 0) {
+    return `Next up: ${next.teamA} vs ${next.teamB}`;
+  }
+
+  return `Next up: ${next.teamA} vs ${next.teamB} (waiting on ${busyTeams.join(" and ")})`;
 }
 
 function nextUpTextForMatches(matches, labelPrefix = "Next up") {
@@ -1166,20 +1162,20 @@ function renderGamesStatusTable() {
       .filter((table) => table.state === "playing" && table.currentMatch)
       .map((table) => [table.currentMatch.num, { tableNum: table.num, startedAtMs: table.currentMatch.startedAtMs }])
   );
-const playedCount = live.completed.length;
-const totalCount = live.total;
-const playingCount = playingByNum.size;
-const splitMode = live.groups.length > 1;
+  const playedCount = live.completed.length;
+  const totalCount = live.total;
+  const playingCount = playingByNum.size;
+  const splitMode = live.groups.length > 1;
 
-summary.textContent = `${playedCount} played · ${playingCount} playing · ${totalCount - playedCount - playingCount} not yet played`;
-if (splitMode) {
-  grid.className = "games-status-grid games-status-grid-split";
-  grid.innerHTML = live.groups.map((group) => renderGamesStatusGroup(group, completedByNum, playingByNum)).join("");
-  return;
-}
+  summary.textContent = `${playedCount} played · ${playingCount} playing · ${totalCount - playedCount - playingCount} not yet played`;
+  if (splitMode) {
+    grid.className = "games-status-grid games-status-grid-split";
+    grid.innerHTML = live.groups.map((group) => renderGamesStatusGroup(group, completedByNum, playingByNum)).join("");
+    return;
+  }
 
-grid.className = "games-status-grid";
-grid.innerHTML = buildGamesStatusRows(live.allMatches, completedByNum, playingByNum);
+  grid.className = "games-status-grid";
+  grid.innerHTML = buildGamesStatusRows(live.allMatches, completedByNum, playingByNum);
 }
 
 function buildGamesStatusRows(matches, completedByNum, playingByNum) {
