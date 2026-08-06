@@ -1049,3 +1049,127 @@ th { color: var(--muted); font-size: 0.95rem; }
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* ─── Session bar ─────────────────────────────────────────────────────────── */
+
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background: var(--surface-alt, #1e293b);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+}
+.session-bar-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.session-bar-id {
+  font-family: ui-monospace, monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent, #38bdf8);
+  background: rgba(56,189,248,0.1);
+  padding: 0.15em 0.5em;
+  border-radius: 0.25rem;
+}
+.session-bar-hint {
+  margin-left: auto;
+}
+
+/* ─── Live tabs ───────────────────────────────────────────────────────────── */
+
+.live-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.live-tab {
+  padding: 0.6rem 1.1rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+  border-radius: 0.3rem 0.3rem 0 0;
+}
+.live-tab:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.04);
+}
+.live-tab.active {
+  color: var(--accent, #38bdf8);
+  border-bottom-color: var(--accent, #38bdf8);
+  background: rgba(56,189,248,0.06);
+}
+
+.live-tab-panel {
+  /* no extra margin — panels use their own panel class */
+}
+
+/* ─── Settings tab ────────────────────────────────────────────────────────── */
+
+.settings-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.settings-section {
+  padding: 1.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-section:first-child { padding-top: 0; }
+.settings-section:last-child { border-bottom: none; }
+.settings-section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+.settings-danger h3 { color: #f87171; }
+
+.settings-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+.settings-info-grid > div {
+  background: var(--surface-alt, #1e293b);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.settings-info-grid span { font-size: 0.75rem; }
+.settings-info-grid strong { font-size: 1.1rem; }
+
+.session-url-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.session-url-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  background: var(--surface-alt, #1e293b);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.4em 0.75em;
+  word-break: break-all;
+  flex: 1;
+  min-width: 200px;
+}

@@ -43,11 +43,11 @@ const step2Pill = document.getElementById("step2-pill");
 const step3Pill = document.getElementById("step3-pill");
 const step4Pill = document.getElementById("step4-pill");
 
-// ─── Session & WebSocket ──────────────────────────────────────────────────────
+// ─── Session & remote sync ────────────────────────────────────────────────────
 
 let sessionId = null;
-let wsConn = null;
-let wsReconnectTimer = null;
+let pollTimer = null;
+let lastRemoteUpdatedAt = "";
 
 function generateSessionId() {
   return Math.random().toString(36).substr(2, 8).toUpperCase();
@@ -60,41 +60,93 @@ function getOrCreateSessionId() {
   return generateSessionId();
 }
 
-function initWebSocket() {
-  if (location.protocol === "file:") {
-    // Running as local file — no WS available
-    const hint = document.getElementById("session-offline-hint");
-    if (hint) hint.classList.remove("hidden");
-    return;
-  }
+function showSyncHint(message) {
+  const hint = document.getElementById("session-offline-hint");
+  if (!hint) return;
+  hint.textContent = message;
+  hint.classList.remove("hidden");
+}
 
+function hideSyncHint() {
+  const hint = document.getElementById("session-offline-hint");
+  if (!hint) return;
+  hint.classList.add("hidden");
+}
+
+function syncApiUrl(action) {
+  return `api.php?action=${encodeURIComponent(action)}&id=${encodeURIComponent(sessionId)}`;
+}
+
+function initRemoteSync() {
   sessionId = getOrCreateSessionId();
   const url = new URL(location.href);
   url.searchParams.set("id", sessionId);
   history.replaceState(null, "", url.toString());
   updateSessionDisplay();
 
-  if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  try {
-    wsConn = new WebSocket(`${proto}//${location.host}`);
-    wsConn.onopen  = () => wsConn.send(JSON.stringify({ type: "JOIN", id: sessionId }));
-    wsConn.onmessage = (e) => {
-      let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type === "JOINED" && msg.state) applySerializedState(msg.state);
-      else if (msg.type === "STATE" && msg.state) applySerializedState(msg.state);
-    };
-    wsConn.onclose = () => { wsReconnectTimer = setTimeout(initWebSocket, 4000); };
-    wsConn.onerror = () => {};
-  } catch (_) {}
+  if (location.protocol === "file:") {
+    showSyncHint("Running as a local file — upload to your PHP hosting to enable multi-computer sync.");
+    return;
+  }
+
+  hideSyncHint();
+  fetchRemoteState();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+  }
+  pollTimer = setInterval(fetchRemoteState, 3000);
 }
 
-function sendState() {
-  if (!wsConn || wsConn.readyState !== 1) return;
+async function sendState() {
+  if (location.protocol === "file:" || !sessionId) return;
   const state = serializeState();
   if (!state) return;
-  wsConn.send(JSON.stringify({ type: "STATE", state }));
+
+  try {
+    const response = await fetch(syncApiUrl("save"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ state }),
+    });
+    const payload = await response.json();
+    if (payload && payload.ok && payload.updatedAt) {
+      lastRemoteUpdatedAt = payload.updatedAt;
+      hideSyncHint();
+    } else if (payload && payload.error) {
+      showSyncHint(payload.error);
+    }
+  } catch (_) {
+    showSyncHint("Could not save live state. Check api.php and config.php on your hosting.");
+  }
+}
+
+async function fetchRemoteState() {
+  if (location.protocol === "file:" || !sessionId) return;
+
+  try {
+    const response = await fetch(syncApiUrl("get"), {
+      cache: "no-store",
+    });
+    const payload = await response.json();
+    if (!payload || !payload.ok) {
+      if (payload && payload.error) {
+        showSyncHint(payload.error);
+      }
+      return;
+    }
+
+    hideSyncHint();
+    if (!payload.updatedAt || payload.updatedAt === lastRemoteUpdatedAt || !payload.state) {
+      return;
+    }
+
+    lastRemoteUpdatedAt = payload.updatedAt;
+    applySerializedState(payload.state);
+  } catch (_) {
+    showSyncHint("Could not load shared state. Check api.php and config.php on your hosting.");
+  }
 }
 
 function serializeState() {
@@ -177,8 +229,8 @@ function updateSessionDisplay() {
   const id = sessionId || "---";
   const isFile = location.protocol === "file:";
   const fullUrl = (!isFile && sessionId)
-    ? `${location.protocol}//${location.host}/?id=${sessionId}`
-    : "(start the server to enable sharing)";
+    ? `${location.origin}${location.pathname}?id=${sessionId}`
+    : "(open the hosted PHP site to enable sharing)";
 
   const els = {
     "session-id-display":  id,
@@ -1490,4 +1542,4 @@ return `
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
 initLiveTabs();
-initWebSocket();
+initRemoteSync();

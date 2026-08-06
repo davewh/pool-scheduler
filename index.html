@@ -161,75 +161,143 @@
     <!-- Step 4: Live Board -->
     <section id="section-live" class="hidden">
 
-      <div class="panel live-panel">
-        <div class="live-header">
-          <div>
-            <h2>Live Match Board <span class="locked-badge">🔒 Draw locked</span></h2>
-            <p id="live-desc" class="muted"></p>
-            <div class="dispatch-mode-panel">
-              <span class="dispatch-mode-label">Next match logic</span>
-              <div class="dispatch-mode-actions" role="group" aria-label="Next match logic">
-                <button type="button" id="mode-waiting-btn" class="btn-secondary dispatch-mode-btn">Longest team waiting</button>
-                <button type="button" id="mode-games-btn" class="btn-secondary dispatch-mode-btn">Least games played</button>
+      <!-- Session bar -->
+      <div class="session-bar" id="session-bar">
+        <span class="session-bar-label">Session</span>
+        <code class="session-bar-id" id="session-id-display">---</code>
+        <button type="button" class="btn-ghost small" id="copy-session-btn">📋 Copy link</button>
+        <span class="session-bar-hint muted small">Share this link with other screens on your network</span>
+      </div>
+
+      <!-- Tab navigation -->
+      <nav class="live-tabs" aria-label="Live board sections">
+        <button class="live-tab active" data-tab="board" type="button">📋 Live Board</button>
+        <button class="live-tab" data-tab="queue" type="button">⏱ Queue</button>
+        <button class="live-tab" data-tab="games" type="button">🎱 Games</button>
+        <button class="live-tab" data-tab="stats" type="button">📊 Stats</button>
+        <button class="live-tab" data-tab="settings" type="button">⚙ Settings</button>
+      </nav>
+
+      <!-- Tab: Live Board -->
+      <div class="live-tab-panel" id="tab-board">
+        <div class="panel live-panel">
+          <div class="live-header">
+            <div>
+              <h2>Live Match Board <span class="locked-badge">🔒 Draw locked</span></h2>
+              <p id="live-desc" class="muted"></p>
+              <div class="dispatch-mode-panel">
+                <span class="dispatch-mode-label">Next match logic</span>
+                <div class="dispatch-mode-actions" role="group" aria-label="Next match logic">
+                  <button type="button" id="mode-waiting-btn" class="btn-secondary dispatch-mode-btn">Longest team waiting</button>
+                  <button type="button" id="mode-games-btn" class="btn-secondary dispatch-mode-btn">Least games played</button>
+                </div>
+                <p id="dispatch-mode-help" class="muted small"></p>
               </div>
-              <p id="dispatch-mode-help" class="muted small"></p>
+            </div>
+            <div class="live-progress-wrap">
+              <div class="progress-track">
+                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+              </div>
+              <span id="progress-label" class="muted">0 / 0 complete</span>
             </div>
           </div>
-          <div class="live-progress-wrap">
-            <div class="progress-track">
-              <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+          <div id="live-tables-grid" class="live-tables-grid"></div>
+          <div id="live-nextup" class="live-nextup muted"></div>
+          <div id="livePoolSummarySection" class="pool-summary live-pools hidden">
+            <div class="queue-heading">
+              <h3>Pool split</h3>
+              <span id="livePoolSummaryHint" class="muted"></span>
             </div>
-            <span id="progress-label" class="muted">0 / 0 complete</span>
+            <div id="livePoolSummaryGrid" class="pool-summary-grid"></div>
           </div>
         </div>
-        <div id="live-tables-grid" class="live-tables-grid"></div>
-        <div id="live-nextup" class="live-nextup muted"></div>
-        <div id="livePoolSummarySection" class="pool-summary live-pools hidden">
+      </div>
+
+      <!-- Tab: Match Queue -->
+      <div class="live-tab-panel hidden" id="tab-queue">
+        <div class="panel">
           <div class="queue-heading">
-            <h3>Pool split</h3>
-            <span id="livePoolSummaryHint" class="muted"></span>
+            <h3>Match queue</h3>
+            <span id="queue-count-label" class="muted"></span>
           </div>
-          <div id="livePoolSummaryGrid" class="pool-summary-grid"></div>
+          <div id="live-queue" class="live-queue"></div>
         </div>
       </div>
 
-      <div class="panel" style="margin-top: 1.5rem">
-        <div class="queue-heading">
-          <h3>Match queue</h3>
-          <span id="queue-count-label" class="muted"></span>
-        </div>
-        <div id="live-queue" class="live-queue"></div>
-      </div>
-
-      <div class="panel" style="margin-top: 1.5rem">
-        <div class="queue-heading">
-          <h3>Games to be played</h3>
-          <span id="games-status-summary" class="muted"></span>
-        </div>
-        <div class="muted small" style="margin-bottom: 0.6rem;">Format: teamNumber v teamNumber</div>
-        <div id="games-status-grid" class="games-status-grid">
+      <!-- Tab: Games to be played -->
+      <div class="live-tab-panel hidden" id="tab-games">
+        <div class="panel">
+          <div class="queue-heading">
+            <h3>Games to be played</h3>
+            <span id="games-status-summary" class="muted"></span>
+          </div>
+          <div class="muted small" style="margin-bottom: 0.6rem;">Format: teamNumber v teamNumber</div>
+          <div id="games-status-grid" class="games-status-grid"></div>
         </div>
       </div>
 
-      <div class="panel" style="margin-top: 1.5rem">
-        <div class="queue-heading">
-          <h3>Team time stats</h3>
-          <span id="time-stats-summary" class="muted"></span>
+      <!-- Tab: Team Stats -->
+      <div class="live-tab-panel hidden" id="tab-stats">
+        <div class="panel">
+          <div class="queue-heading">
+            <h3>Team time stats</h3>
+            <span id="time-stats-summary" class="muted"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Team</th>
+                  <th>Status</th>
+                  <th>Matches logged</th>
+                  <th>Total game time</th>
+                  <th>Average game time</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody id="team-time-stats-body"></tbody>
+            </table>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Team</th>
-                <th>Status</th>
-                <th>Matches logged</th>
-                <th>Total game time</th>
-                <th>Average game time</th>
-                <th>Points</th>
-              </tr>
-            </thead>
-            <tbody id="team-time-stats-body"></tbody>
-          </table>
+      </div>
+
+      <!-- Tab: Settings -->
+      <div class="live-tab-panel hidden" id="tab-settings">
+        <div class="panel settings-tab-panel">
+
+          <section class="settings-section">
+            <h3>Tournament</h3>
+            <div id="settings-info-display" class="settings-info-grid"></div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Share session</h3>
+            <p class="muted">Open this URL on any computer on your network to view the live board in sync:</p>
+            <div class="session-url-row">
+              <code id="session-url-full" class="session-url-code">—</code>
+              <button type="button" id="copy-url-btn" class="btn-ghost">Copy</button>
+            </div>
+            <p class="muted small" style="margin-top:0.5rem">Session ID: <strong id="session-id-settings"></strong></p>
+            <p class="session-offline-hint muted small hidden" id="session-offline-hint">Running as a local file — upload to your PHP hosting to enable multi-computer sync.</p>
+          </section>
+
+          <section class="settings-section">
+            <h3>Next match logic</h3>
+            <div class="dispatch-mode-panel">
+              <div class="dispatch-mode-actions" role="group" aria-label="Next match logic">
+                <button type="button" id="mode-waiting-btn2" class="btn-secondary dispatch-mode-btn">Longest team waiting</button>
+                <button type="button" id="mode-games-btn2" class="btn-secondary dispatch-mode-btn">Least games played</button>
+              </div>
+              <p id="dispatch-mode-help2" class="muted small"></p>
+            </div>
+          </section>
+
+          <section class="settings-section settings-danger">
+            <h3>New tournament</h3>
+            <p class="muted">Clears all current tournament data and starts fresh.</p>
+            <button type="button" id="new-tournament-btn" class="btn-secondary">↩ New Tournament</button>
+          </section>
+
         </div>
       </div>
 

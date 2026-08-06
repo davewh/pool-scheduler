@@ -43,6 +43,293 @@ const step2Pill = document.getElementById("step2-pill");
 const step3Pill = document.getElementById("step3-pill");
 const step4Pill = document.getElementById("step4-pill");
 
+// ─── Session & remote sync ────────────────────────────────────────────────────
+
+let sessionId = null;
+let pollTimer = null;
+let lastRemoteUpdatedAt = "";
+
+function generateSessionId() {
+  return Math.random().toString(36).substr(2, 8).toUpperCase();
+}
+
+function getOrCreateSessionId() {
+  const p = new URLSearchParams(location.search);
+  const existing = p.get("id");
+  if (existing && existing.length > 0) return existing;
+  return generateSessionId();
+}
+
+function showSyncHint(message) {
+  const hint = document.getElementById("session-offline-hint");
+  if (!hint) return;
+  hint.textContent = message;
+  hint.classList.remove("hidden");
+}
+
+function hideSyncHint() {
+  const hint = document.getElementById("session-offline-hint");
+  if (!hint) return;
+  hint.classList.add("hidden");
+}
+
+function syncApiUrl(action) {
+  return `api.php?action=${encodeURIComponent(action)}&id=${encodeURIComponent(sessionId)}`;
+}
+
+function initRemoteSync() {
+  sessionId = getOrCreateSessionId();
+  const url = new URL(location.href);
+  url.searchParams.set("id", sessionId);
+  history.replaceState(null, "", url.toString());
+  updateSessionDisplay();
+
+  if (location.protocol === "file:") {
+    showSyncHint("Running as a local file — upload to your PHP hosting to enable multi-computer sync.");
+    return;
+  }
+
+  hideSyncHint();
+  fetchRemoteState();
+  if (pollTimer) {
+    clearInterval(pollTimer);
+  }
+  pollTimer = setInterval(fetchRemoteState, 3000);
+}
+
+async function sendState() {
+  if (location.protocol === "file:" || !sessionId) return;
+  const state = serializeState();
+  if (!state) return;
+
+  try {
+    const response = await fetch(syncApiUrl("save"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ state }),
+    });
+    const payload = await response.json();
+    if (payload && payload.ok && payload.updatedAt) {
+      lastRemoteUpdatedAt = payload.updatedAt;
+      hideSyncHint();
+    } else if (payload && payload.error) {
+      showSyncHint(payload.error);
+    }
+  } catch (_) {
+    showSyncHint("Could not save live state. Check api.php and config.php on your hosting.");
+  }
+}
+
+async function fetchRemoteState() {
+  if (location.protocol === "file:" || !sessionId) return;
+
+  try {
+    const response = await fetch(syncApiUrl("get"), {
+      cache: "no-store",
+    });
+    const payload = await response.json();
+    if (!payload || !payload.ok) {
+      if (payload && payload.error) {
+        showSyncHint(payload.error);
+      }
+      return;
+    }
+
+    hideSyncHint();
+    if (!payload.updatedAt || payload.updatedAt === lastRemoteUpdatedAt || !payload.state) {
+      return;
+    }
+
+    lastRemoteUpdatedAt = payload.updatedAt;
+    applySerializedState(payload.state);
+  } catch (_) {
+    showSyncHint("Could not load shared state. Check api.php and config.php on your hosting.");
+  }
+}
+
+function serializeState() {
+  if (!isLocked || !live) return null;
+  return {
+    version: 1,
+    isLocked: true,
+    lastParams: lastParams ? {
+      teamCount:  lastParams.teamCount,
+      tableCount: lastParams.tableCount,
+      minMinutes: lastParams.minMinutes,
+      maxMinutes: lastParams.maxMinutes,
+      teams:    lastParams.teams,
+      drawMode: lastParams.drawMode,
+      drawData: lastParams.drawData,
+    } : null,
+    live: {
+      allMatches:        live.allMatches,
+      tables:            live.tables,
+      completed:         live.completed,
+      queueNums:         live.queue.map((m) => m.num),
+      activePairsArr:    [...live.activePairs],
+      playCount:         live.playCount,
+      points:            live.points,
+      teamTotalSeconds:  live.teamTotalSeconds,
+      teamLoggedMatches: live.teamLoggedMatches,
+      lastFinishedAtMs:  live.lastFinishedAtMs,
+      loggedGameCount:   live.loggedGameCount,
+      loggedGameSeconds: live.loggedGameSeconds,
+      total:             live.total,
+      teamNumbers:       live.teamNumbers,
+      groups:            live.groups,
+      dispatchMode:      live.dispatchMode,
+    },
+  };
+}
+
+function applySerializedState(state) {
+  if (!state || !state.isLocked || !state.live || !state.lastParams) return;
+  const sl = state.live;
+  isLocked = true;
+  lastParams = state.lastParams;
+  lastSlots = state.lastParams.drawData ? state.lastParams.drawData.slots : [];
+
+  const allMatchesByNum = new Map(sl.allMatches.map((m) => [m.num, m]));
+  live = {
+    allMatches:        sl.allMatches,
+    queue:             (sl.queueNums || []).map((n) => allMatchesByNum.get(n)).filter(Boolean),
+    tables:            sl.tables,
+    activePairs:       new Set(sl.activePairsArr || []),
+    playCount:         sl.playCount,
+    points:            sl.points,
+    teamTotalSeconds:  sl.teamTotalSeconds,
+    teamLoggedMatches: sl.teamLoggedMatches,
+    lastFinishedAtMs:  sl.lastFinishedAtMs,
+    loggedGameCount:   sl.loggedGameCount,
+    loggedGameSeconds: sl.loggedGameSeconds,
+    completed:         sl.completed,
+    total:             sl.total,
+    teamNumbers:       sl.teamNumbers,
+    initialTableOrder: [],
+    groups:            sl.groups,
+    dispatchMode:      sl.dispatchMode,
+  };
+
+  sectionSettings.classList.add("hidden");
+  sectionNames.classList.add("hidden");
+  results.classList.add("hidden");
+  sectionLive.classList.remove("hidden");
+  setStep(4);
+
+  if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
+  ensureLiveTicker();
+  renderLiveBoard();
+  renderSettingsTab();
+  updateSessionDisplay();
+}
+
+function updateSessionDisplay() {
+  const id = sessionId || "---";
+  const isFile = location.protocol === "file:";
+  const fullUrl = (!isFile && sessionId)
+    ? `${location.origin}${location.pathname}?id=${sessionId}`
+    : "(open the hosted PHP site to enable sharing)";
+
+  const els = {
+    "session-id-display":  id,
+    "session-id-settings": id,
+    "session-url-full":    fullUrl,
+  };
+  for (const [elId, text] of Object.entries(els)) {
+    const el = document.getElementById(elId);
+    if (el) el.textContent = text;
+  }
+}
+
+// ─── Live tabs ────────────────────────────────────────────────────────────────
+
+function initLiveTabs() {
+  document.querySelectorAll(".live-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".live-tab").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".live-tab-panel").forEach((p) => p.classList.add("hidden"));
+      btn.classList.add("active");
+      const panel = document.getElementById("tab-" + btn.dataset.tab);
+      if (panel) panel.classList.remove("hidden");
+    });
+  });
+
+  // Settings tab: duplicate dispatch mode buttons
+  const modeBtn2W = document.getElementById("mode-waiting-btn2");
+  const modeBtn2G = document.getElementById("mode-games-btn2");
+  if (modeBtn2W) modeBtn2W.addEventListener("click", () => setDispatchMode("waiting"));
+  if (modeBtn2G) modeBtn2G.addEventListener("click", () => setDispatchMode("games"));
+
+  // Copy session link
+  const copySessionBtn = document.getElementById("copy-session-btn");
+  if (copySessionBtn) {
+    copySessionBtn.addEventListener("click", () => {
+      const url = location.protocol !== "file:"
+        ? `${location.protocol}//${location.host}/?id=${sessionId}`
+        : null;
+      if (!url) return;
+      navigator.clipboard.writeText(url).then(() => {
+        copySessionBtn.textContent = "✓ Copied!";
+        setTimeout(() => { copySessionBtn.textContent = "📋 Copy link"; }, 2000);
+      });
+    });
+  }
+
+  // Copy URL button in Settings tab
+  const copyUrlBtn = document.getElementById("copy-url-btn");
+  if (copyUrlBtn) {
+    copyUrlBtn.addEventListener("click", () => {
+      const code = document.getElementById("session-url-full");
+      if (!code) return;
+      navigator.clipboard.writeText(code.textContent).then(() => {
+        copyUrlBtn.textContent = "✓ Copied!";
+        setTimeout(() => { copyUrlBtn.textContent = "Copy"; }, 2000);
+      });
+    });
+  }
+
+  // New Tournament button
+  const newTournBtn = document.getElementById("new-tournament-btn");
+  if (newTournBtn) {
+    newTournBtn.addEventListener("click", () => {
+      if (!confirm("Start a new tournament? This will clear all current data.")) return;
+      location.href = location.pathname;
+    });
+  }
+}
+
+function renderSettingsTab() {
+  const infoEl = document.getElementById("settings-info-display");
+  if (!infoEl || !lastParams) return;
+  const p = lastParams;
+  const dd = p.drawData;
+  infoEl.innerHTML = [
+    ["Teams",      p.teamCount || "—"],
+    ["Tables",     p.tableCount || "—"],
+    ["Match time", `${p.minMinutes}–${p.maxMinutes} min`],
+    ["Format",     dd && dd.splitMode ? "Split pools" : "Full round robin"],
+    ["Matches",    dd ? dd.totalMatches : "—"],
+  ].map(([label, val]) => `
+    <div>
+      <span class="muted">${label}</span>
+      <strong>${val}</strong>
+    </div>
+  `).join("");
+
+  // Sync settings tab dispatch buttons
+  const modeBtn2W = document.getElementById("mode-waiting-btn2");
+  const modeBtn2G = document.getElementById("mode-games-btn2");
+  const help2     = document.getElementById("dispatch-mode-help2");
+  if (live && modeBtn2W && modeBtn2G) {
+    modeBtn2W.classList.toggle("dispatch-mode-btn-active", live.dispatchMode === "waiting");
+    modeBtn2G.classList.toggle("dispatch-mode-btn-active", live.dispatchMode === "games");
+    if (help2) help2.textContent = dispatchModeHelpText(live.dispatchMode);
+  }
+}
+
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let isLocked  = false;
@@ -536,8 +823,11 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
   sectionLive.classList.remove("hidden");
   setStep(4);
   sectionLive.scrollIntoView({ behavior: "smooth", block: "start" });
+  renderSettingsTab();
+  updateSessionDisplay();
   ensureLiveTicker();
   autoDispatchAndRender();
+  sendState();
 }
 
 function compareEligibleMatches(a, b) {
@@ -645,6 +935,7 @@ function finishMatch(tableNum, winnerTeam) {
   table.matchesPlayed++;
   table.state = "free";
   autoDispatchAndRender(table.num);
+  sendState();
 }
 
 function dispatchTable(table) {
@@ -1099,11 +1390,14 @@ function setDispatchMode(mode) {
   if (!live || (mode !== "waiting" && mode !== "games")) return;
   if (live.dispatchMode === mode) {
     renderLiveBoard();
+    renderSettingsTab();
     return;
   }
 
   live.dispatchMode = mode;
   autoDispatchAndRender();
+  renderSettingsTab();
+  sendState();
 }
 
 modeWaitingBtn.addEventListener("click", () => {
@@ -1244,3 +1538,8 @@ return `
   </section>
 `;
 }
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+
+initLiveTabs();
+initRemoteSync();
