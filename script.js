@@ -947,72 +947,72 @@ function renderLiveTables() {
 }
 
 function buildLiveTableCard(table) {
-    const card = document.createElement("div");
-    let stateClass = `live-table--${table.state}`;
-    let bodyHtml = "";
-    let poolBadge = "";
+  const card = document.createElement("div");
+  let stateClass = `live-table--${table.state}`;
+  let bodyHtml = "";
+  let poolBadge = "";
 
-    if (table.state === "playing") {
-      const m = table.currentMatch;
-      const aPts = live.points[m.teamA] || 0;
-      const bPts = live.points[m.teamB] || 0;
-      const elapsed = Math.max(1, Math.floor((Date.now() - m.startedAtMs) / 1000));
-      poolBadge = m.groupLabel ? `<span class="live-pool-badge">${m.groupLabel}</span>` : "";
-      bodyHtml = `
-        <div class="live-match-display">
-          <div class="live-team">${m.teamA} <span class="live-team-points">${aPts} pt${aPts === 1 ? "" : "s"}</span></div>
-          <div class="live-vs">VS</div>
-          <div class="live-team">${m.teamB} <span class="live-team-points">${bPts} pt${bPts === 1 ? "" : "s"}</span></div>
-        </div>
-        <div class="live-timer-wrap">
-          <span class="live-timer-label">Match timer</span>
-          <strong id="timer-table-${table.num}" class="live-timer">${fmtClock(elapsed)}</strong>
-        </div>
-        <div class="result-prompt">Select winner:</div>
-        <div class="result-actions">
-          <button class="btn-win" data-table="${table.num}" data-winner="${m.teamA}">${m.teamA} won</button>
-          <button class="btn-win" data-table="${table.num}" data-winner="${m.teamB}">${m.teamB} won</button>
-        </div>
-      `;
-    } else if (table.state === "done") {
-      bodyHtml = `
-        <div class="live-waiting">
-          <div class="live-waiting-icon">✅</div>
-          <p>No more matches</p>
-        </div>
-      `;
-    } else if (table.state === "waiting") {
-      // Free but no eligible matches (all teams currently playing) — show waiting
-      stateClass = "live-table--waiting";
-      const nextUp = live.queue.slice(0, 2).map((m) => `${m.groupLabel ? `${m.groupLabel}: ` : ""}${m.teamA} vs ${m.teamB}`).join(" · ");
-      bodyHtml = `
-        <div class="live-waiting">
-          <div class="live-waiting-icon">⏳</div>
-          <p>No eligible match right now</p>
-          ${nextUp ? `<p class="muted small">Next: ${nextUp}</p>` : ""}
-        </div>
-      `;
-    } else {
-      const nextReady = eligibleMatches(table)[0];
-      bodyHtml = `
-        <div class="live-waiting">
-          <div class="live-waiting-icon">✅</div>
-          <p>Table ready</p>
-          ${nextReady ? `<p class="muted small">Next: ${nextReady.groupLabel ? `${nextReady.groupLabel}: ` : ""}${nextReady.teamA} vs ${nextReady.teamB}</p>` : ""}
-        </div>
-      `;
-    }
-
-    card.className = `live-table-card ${stateClass}`;
-    card.innerHTML = `
-      <div class="live-table-header">
-        <span>TABLE ${table.num}</span>
-        ${poolBadge}
-        <span class="table-played-count">${table.matchesPlayed} played</span>
+  if (table.state === "playing") {
+    const m = table.currentMatch;
+    const aPts = live.points[m.teamA] || 0;
+    const bPts = live.points[m.teamB] || 0;
+    const elapsed = Math.max(1, Math.floor((Date.now() - m.startedAtMs) / 1000));
+    poolBadge = m.groupLabel ? `<span class="live-pool-badge">${m.groupLabel}</span>` : "";
+    bodyHtml = `
+      <div class="live-match-display">
+        <div class="live-team">${m.teamA} <span class="live-team-points">${aPts} pt${aPts === 1 ? "" : "s"}</span></div>
+        <div class="live-vs">VS</div>
+        <div class="live-team">${m.teamB} <span class="live-team-points">${bPts} pt${bPts === 1 ? "" : "s"}</span></div>
       </div>
-      <div class="live-table-body">${bodyHtml}      </div>
+      <div class="live-timer-wrap">
+        <span class="live-timer-label">Match timer</span>
+        <strong id="timer-table-${table.num}" class="live-timer">${fmtClock(elapsed)}</strong>
+      </div>
+      <div class="result-prompt">Select winner:</div>
+      <div class="result-actions">
+        <button class="btn-win" data-table="${table.num}" data-winner="${m.teamA}">${m.teamA} won</button>
+        <button class="btn-win" data-table="${table.num}" data-winner="${m.teamB}">${m.teamB} won</button>
+      </div>
     `;
-    return card;
+  } else if (table.state === "done") {
+    bodyHtml = `
+      <div class="live-waiting">
+        <div class="live-waiting-icon">✅</div>
+        <p>No more matches</p>
+      </div>
+    `;
+  } else if (table.state === "waiting") {
+    // Free but no eligible matches (all teams currently playing) — show waiting
+    stateClass = "live-table--waiting";
+    const nextUp = live.queue.slice(0, 2).map((m) => `${m.groupLabel ? `${m.groupLabel}: ` : ""}${m.teamA} vs ${m.teamB}`).join(" · ");
+    bodyHtml = `
+      <div class="live-waiting">
+        <div class="live-waiting-icon">⏳</div>
+        <p>No eligible match right now</p>
+        ${nextUp ? `<p class="muted small">Next: ${nextUp}</p>` : ""}
+      </div>
+    `;
+  } else {
+    const nextReady = eligibleMatches(table)[0];
+    bodyHtml = `
+      <div class="live-waiting">
+        <div class="live-waiting-icon">✅</div>
+        <p>Table ready</p>
+        ${nextReady ? `<p class="muted small">Next: ${nextReady.groupLabel ? `${nextReady.groupLabel}: ` : ""}${nextReady.teamA} vs ${nextReady.teamB}</p>` : ""}
+      </div>
+    `;
+  }
+
+  card.className = `live-table-card ${stateClass}`;
+  card.innerHTML = `
+    <div class="live-table-header">
+      <span>TABLE ${table.num}</span>
+      ${poolBadge}
+      <span class="table-played-count">${table.matchesPlayed} played</span>
+    </div>
+    <div class="live-table-body">${bodyHtml}      </div>
+  `;
+  return card;
 }
 
 function renderLiveQueue() {
@@ -1034,8 +1034,9 @@ function renderLiveQueue() {
   }
 
   el.className = "live-queue";
-  const readyNums = new Set(queueSort().filter(matchIsReady).map((m) => m.num));
-  const shown = queueSort().slice(0, 12);
+  const sortedQueue = queueSort();
+  const readyNums = new Set(sortedQueue.filter(matchIsReady).map((m) => m.num));
+  const shown = sortedQueue.slice(0, 12);
   el.innerHTML = shown.map((m) => {
     const ready = readyNums.has(m.num);
     return `
