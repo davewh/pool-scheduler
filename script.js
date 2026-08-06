@@ -984,7 +984,7 @@ function buildLiveTableCard(table) {
   } else if (table.state === "waiting") {
     // Free but no eligible matches (all teams currently playing) — show waiting
     stateClass = "live-table--waiting";
-    const nextUp = live.queue.slice(0, 2).map((m) => `${m.groupLabel ? `${m.groupLabel}: ` : ""}${m.teamA} vs ${m.teamB}`).join(" · ");
+    const nextUp = queueSort().slice(0, 2).map((m) => `${m.groupLabel ? `${m.groupLabel}: ` : ""}${m.teamA} vs ${m.teamB}`).join(" · ");
     bodyHtml = `
       <div class="live-waiting">
         <div class="live-waiting-icon">⏳</div>
@@ -993,12 +993,10 @@ function buildLiveTableCard(table) {
       </div>
     `;
   } else {
-    const nextReady = eligibleMatches(table)[0];
     bodyHtml = `
       <div class="live-waiting">
         <div class="live-waiting-icon">✅</div>
         <p>Table ready</p>
-        ${nextReady ? `<p class="muted small">Next: ${nextReady.groupLabel ? `${nextReady.groupLabel}: ` : ""}${nextReady.teamA} vs ${nextReady.teamB}</p>` : ""}
       </div>
     `;
   }
