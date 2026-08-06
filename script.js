@@ -808,21 +808,19 @@ function nextUpTextForMatches(matches, labelPrefix = "Next up") {
   }
 
   const next = queueSort(matches)[0];
-  if (next && matchIsReady(next)) {
+  if (!next) {
+    return `${labelPrefix}: waiting for teams to finish.`;
+  }
+  if (matchIsReady(next)) {
     return `${labelPrefix}: ${next.teamA} vs ${next.teamB}`;
   }
 
-  const queued = queueSort(matches)[0];
-  if (!queued) {
-    return `${labelPrefix}: waiting for teams to finish.`;
-  }
-
-  const busyTeams = busyReason(queued);
+  const busyTeams = busyReason(next);
   if (busyTeams.length === 0) {
-    return `${labelPrefix}: ${queued.teamA} vs ${queued.teamB}`;
+    return `${labelPrefix}: ${next.teamA} vs ${next.teamB}`;
   }
 
-  return `${labelPrefix}: ${queued.teamA} vs ${queued.teamB} (waiting on ${busyTeams.join(" and ")})`;
+  return `${labelPrefix}: ${next.teamA} vs ${next.teamB} (waiting on ${busyTeams.join(" and ")})`;
 }
 
 function ensureLiveTicker() {
@@ -1179,64 +1177,64 @@ function renderGamesStatusTable() {
 }
 
 function buildGamesStatusRows(matches, completedByNum, playingByNum) {
-const chunkSize = 10;
-const rows = [];
+  const chunkSize = 10;
+  const rows = [];
 
-for (let start = 0; start < matches.length; start += chunkSize) {
-  const chunk = matches.slice(start, start + chunkSize);
-  const from = start + 1;
-  const to = start + chunk.length;
+  for (let start = 0; start < matches.length; start += chunkSize) {
+    const chunk = matches.slice(start, start + chunkSize);
+    const from = start + 1;
+    const to = start + chunk.length;
 
-  const cells = chunk.map((match) => {
-    const completed = completedByNum.get(match.num);
-    const playingMeta = playingByNum.get(match.num);
-    const isPlayed = Boolean(completed);
-    const isPlaying = !isPlayed && Boolean(playingMeta);
-    const statusClass = isPlayed ? "game-chip-played" : isPlaying ? "game-chip-playing" : "game-chip-pending";
-    const teamA = live.teamNumbers[match.teamA] || "?";
-    const teamB = live.teamNumbers[match.teamB] || "?";
-    const playingElapsed = isPlaying
-      ? Math.max(1, Math.floor((Date.now() - playingMeta.startedAtMs) / 1000))
-      : 0;
-    const duration = isPlayed
-      ? `<span class="game-chip-time">T${completed.tableNum || "-"} (${fmtClock(completed.durationSeconds || 0)})</span>`
-      : isPlaying
-        ? `<span class="game-chip-time">* T${playingMeta.tableNum} (${fmtClock(playingElapsed)})</span>`
-        : "";
+    const cells = chunk.map((match) => {
+      const completed = completedByNum.get(match.num);
+      const playingMeta = playingByNum.get(match.num);
+      const isPlayed = Boolean(completed);
+      const isPlaying = !isPlayed && Boolean(playingMeta);
+      const statusClass = isPlayed ? "game-chip-played" : isPlaying ? "game-chip-playing" : "game-chip-pending";
+      const teamA = live.teamNumbers[match.teamA] || "?";
+      const teamB = live.teamNumbers[match.teamB] || "?";
+      const playingElapsed = isPlaying
+        ? Math.max(1, Math.floor((Date.now() - playingMeta.startedAtMs) / 1000))
+        : 0;
+      const duration = isPlayed
+        ? `<span class="game-chip-time">T${completed.tableNum || "-"} (${fmtClock(completed.durationSeconds || 0)})</span>`
+        : isPlaying
+          ? `<span class="game-chip-time">* T${playingMeta.tableNum} (${fmtClock(playingElapsed)})</span>`
+          : "";
 
-    return `
-      <div class="game-chip ${statusClass}">
-        <span class="game-chip-main">${teamA}v${teamB}</span>
-        ${duration}
+      return `
+        <div class="game-chip ${statusClass}">
+          <span class="game-chip-main">${teamA}v${teamB}</span>
+          ${duration}
+        </div>
+      `;
+    }).join("");
+
+    rows.push(`
+      <div class="games-status-row">
+        <div class="games-status-row-title">Matches ${from}-${to}</div>
+        <div class="games-status-row-grid">${cells}</div>
       </div>
-    `;
-  }).join("");
+    `);
+  }
 
-  rows.push(`
-    <div class="games-status-row">
-      <div class="games-status-row-title">Matches ${from}-${to}</div>
-      <div class="games-status-row-grid">${cells}</div>
-    </div>
-  `);
-}
-
-return rows.join("");
+  return rows.join("");
 }
 
 function renderGamesStatusGroup(group, completedByNum, playingByNum) {
-const groupMatches = live.allMatches.filter((match) => match.groupId === group.id);
-const groupPlayed = groupMatches.filter((match) => completedByNum.has(match.num)).length;
-const groupPlaying = groupMatches.filter((match) => playingByNum.has(match.num)).length;
-const groupPending = groupMatches.length - groupPlayed - groupPlaying;
+  const groupMatches = live.allMatches.filter((match) => match.groupId === group.id);
+  const groupPlayed = groupMatches.filter((match) => completedByNum.has(match.num)).length;
+  const groupPlaying = groupMatches.filter((match) => playingByNum.has(match.num)).length;
+  const groupPending = groupMatches.length - groupPlayed - groupPlaying;
 
-return `
-  <section class="games-group">
-    <div class="games-group-header">
-      <h4>${group.label}</h4>
-      <span class="muted">${groupPlayed} played · ${groupPlaying} playing · ${groupPending} not yet played</span>
-    </div>
-    <div class="games-group-subtitle muted small">${formatGroupTableText(group)}</div>
-    ${buildGamesStatusRows(groupMatches, completedByNum, playingByNum)}
-  </section>
-`;
+  return `
+    <section class="games-group">
+      <div class="games-group-header">
+        <h4>${group.label}</h4>
+        <span class="muted">${groupPlayed} played · ${groupPlaying} playing · ${groupPending} not yet played</span>
+      </div>
+      <div class="games-group-subtitle muted small">${formatGroupTableText(group)}</div>
+      ${buildGamesStatusRows(groupMatches, completedByNum, playingByNum)}
+    </section>
+  `;
 }
