@@ -983,7 +983,6 @@ function buildLiveTableCard(table) {
     `;
   } else if (table.state === "waiting") {
     // Free but no eligible matches (all teams currently playing) — show waiting
-    stateClass = "live-table--waiting";
     const nextUp = live.queue
       .filter((m) => !m.allowedTables || m.allowedTables.includes(table.num))
       .sort(compareEligibleMatches)
