@@ -790,10 +790,6 @@ function nextUpText() {
   if (!next) {
     return "Next up: waiting for teams to finish.";
   }
-  if (matchIsReady(next)) {
-    return `Next up: ${next.teamA} vs ${next.teamB}`;
-  }
-
   const busyTeams = busyReason(next);
   if (busyTeams.length === 0) {
     return `Next up: ${next.teamA} vs ${next.teamB}`;
@@ -985,6 +981,7 @@ function buildLiveTableCard(table) {
     // Free but no eligible matches (all teams currently playing) — show waiting
     const nextUp = live.queue
       .filter((m) => !m.allowedTables || m.allowedTables.includes(table.num))
+      .filter((m) => !live.activePairs.has(m.teamA) && !live.activePairs.has(m.teamB))
       .sort(compareEligibleMatches)
       .slice(0, 2)
       .map((m) => `${m.groupLabel ? `${m.groupLabel}: ` : ""}${m.teamA} vs ${m.teamB}`)
