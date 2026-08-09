@@ -63,30 +63,74 @@ Upload the project files into each server folder you want to run:
 
 Both folders should contain the same app files, including [admin/](./admin/), [index.html](./index.html), [script.js](./script.js), and [api.php](./api.php).
 
-### 3. Create SQL configs (live + test)
+### 3. Create the SQL config file
 
-In each deployed folder:
+Upload a single [config.sample.php](./config.sample.php) file as `config.php` in the deployed app folder.
 
-- copy [config.sample.php](./config.sample.php) to `config.php` for live SQL
-- copy [config.pool_test.sample.php](./config.pool_test.sample.php) to `config.pool_test.php` for test SQL
+The file contains all four environments in one place:
 
-Fill each file with the matching database credentials:
+- `local`
+- `local_test`
+- `live`
+- `live_test`
+
+Fill the relevant section with your database credentials:
 
 ```php
 <?php
+declare(strict_types=1);
+
 return [
-    'db' => [
-        'host' => 'localhost',
-        'port' => 3306,
-        'name' => 'your_database_name',
-        'user' => 'your_database_user',
-        'pass' => 'your_database_password',
-        'charset' => 'utf8mb4',
+    'environments' => [
+        'local' => [
+            'db' => [
+                'host' => 'localhost',
+                'port' => 3306,
+                'name' => 'pool_live_local',
+                'user' => 'root',
+                'pass' => '',
+                'charset' => 'utf8mb4',
+            ],
+        ],
+        'local_test' => [
+            'db' => [
+                'host' => 'localhost',
+                'port' => 3306,
+                'name' => 'pool_test_local',
+                'user' => 'root',
+                'pass' => '',
+                'charset' => 'utf8mb4',
+            ],
+        ],
+        'live' => [
+            'db' => [
+                'host' => 'localhost',
+                'port' => 3306,
+                'name' => 'your_live_database_name',
+                'user' => 'your_live_database_user',
+                'pass' => 'your_live_database_password',
+                'charset' => 'utf8mb4',
+            ],
+        ],
+        'live_test' => [
+            'db' => [
+                'host' => 'localhost',
+                'port' => 3306,
+                'name' => 'your_live_test_database_name',
+                'user' => 'your_live_test_database_user',
+                'pass' => 'your_live_test_database_password',
+                'charset' => 'utf8mb4',
+            ],
+        ],
     ],
 ];
 ```
 
-When the app runs under a `/pool_test` path, [api.php](./api.php) will prefer `config.pool_test.php`; otherwise it uses `config.php`.
+The app will automatically choose:
+
+- `local` or `local_test` when you are on localhost
+- `live` or `live_test` when you are on the server
+- the `/pool_test` path selects the test environment
 
 ### 4. Create the table
 
@@ -128,6 +172,6 @@ http://localhost:8000/
 
 ## Notes
 
-- `config.php` and `config.pool_test.php` are intentionally gitignored
+- `config.php`, `config.pool_test.php`, `public/config.php`, and `public/config.pool_test.php` are intentionally gitignored
 - shared hosting usually does **not** support a persistent Node/WebSocket process
 - polling is used instead of WebSockets so it works on standard PHP hosting

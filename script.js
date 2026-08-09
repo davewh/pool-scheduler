@@ -12,6 +12,23 @@ const splitDecision    = document.getElementById("split-decision");
 const splitDecisionText= document.getElementById("split-decision-text");
 const drawFullBtn      = document.getElementById("draw-full-btn");
 const drawSplitBtn     = document.getElementById("draw-split-btn");
+const drawPlateBtn     = document.getElementById("draw-plate-btn");
+const drawModeFullBtn  = document.getElementById("draw-mode-full-btn");
+const drawModeSplitBtn = document.getElementById("draw-mode-split-btn");
+const drawModePlateBtn = document.getElementById("draw-mode-plate-btn");
+const drawModeRandomBtn = document.getElementById("draw-mode-random-btn");
+const drawModeManualBtn = document.getElementById("draw-mode-manual-btn");
+const drawModeSubActions = document.getElementById("drawModeSubActions");
+const platePairingSection = document.getElementById("plate-pairing-section");
+const platePairingRandomBtn = document.getElementById("plate-pairing-random-btn");
+const platePairingManualBtn = document.getElementById("plate-pairing-manual-btn");
+const platePairingFinishedBtn = document.getElementById("plate-pairing-finished-btn");
+const platePairingHelp = document.getElementById("plate-pairing-help");
+const platePairingStep = document.getElementById("plate-pairing-step");
+const platePairingSelected = document.getElementById("plate-pairing-selected");
+const platePairingBye = document.getElementById("plate-pairing-bye");
+const platePairingPairs = document.getElementById("plate-pairing-pairs");
+const platePairingAvailable = document.getElementById("plate-pairing-available");
 
 const results              = document.getElementById("results");
 const totalMatchesEl       = document.getElementById("totalMatches");
@@ -20,6 +37,9 @@ const totalSlotsEl         = document.getElementById("totalSlots");
 const estimatedTimeEl      = document.getElementById("estimatedTime");
 const scheduleDescriptionEl= document.getElementById("scheduleDescription");
 const scheduleBody         = document.getElementById("scheduleBody");
+const firstRoundRefSection = document.getElementById("first-round-ref-section");
+const firstRoundRefHint = document.getElementById("first-round-ref-hint");
+const firstRoundRefList = document.getElementById("first-round-ref-list");
 const drawSeedLabel        = document.getElementById("drawSeedLabel");
 const drawActions          = document.getElementById("drawActions");
 const redrawBtn            = document.getElementById("redrawBtn");
@@ -60,6 +80,12 @@ const dashboardTabs = document.getElementById("admin-dashboard-tabs");
 const toggleTournamentsBtn = document.getElementById("toggle-tournaments-btn");
 const tournamentsPanel = document.getElementById("tournaments-panel");
 const tournamentList = document.getElementById("tournament-list");
+const teamCountInput = document.getElementById("teamCount");
+const tableCountInput = document.getElementById("tableCount");
+const refSettingToggleLabel = document.querySelector(".ref-setting-toggle");
+const refEnabledInput = document.getElementById("refEnabled");
+const refModeWrap = document.getElementById("refModeWrap");
+const refModeSelect = document.getElementById("refMode");
 
 // ─── Session & remote sync ────────────────────────────────────────────────────
 
@@ -184,6 +210,11 @@ function serializeState() {
       teams:    lastParams.teams,
       drawMode: lastParams.drawMode,
       drawData: lastParams.drawData,
+      refsEnabled: Boolean(lastParams.refsEnabled),
+      refMode: lastParams.refMode || "none",
+      loserRefMode: lastParams.loserRefMode || "none",
+      firstRoundRefAssignments: lastParams.firstRoundRefAssignments || {},
+      firstRoundRefRequiredTables: lastParams.firstRoundRefRequiredTables || [],
     } : null,
     live: {
       allMatches:        live.allMatches,
@@ -201,6 +232,7 @@ function serializeState() {
       total:             live.total,
       teamNumbers:       live.teamNumbers,
       groups:            live.groups,
+      refSettings:       live.refSettings || { enabled: false, mode: "none" },
       dispatchMode:      live.dispatchMode,
       lastUndoResult:    live.lastUndoResult || null,
     },
@@ -211,7 +243,14 @@ function applySerializedState(state) {
   if (!state || !state.isLocked || !state.live || !state.lastParams) return;
   const sl = state.live;
   isLocked = true;
-  lastParams = state.lastParams;
+  lastParams = {
+    ...state.lastParams,
+    refsEnabled: Boolean(state.lastParams.refsEnabled),
+    refMode: state.lastParams.refMode || "none",
+    loserRefMode: state.lastParams.loserRefMode || "none",
+    firstRoundRefAssignments: state.lastParams.firstRoundRefAssignments || {},
+    firstRoundRefRequiredTables: state.lastParams.firstRoundRefRequiredTables || [],
+  };
   lastSlots = state.lastParams.drawData ? state.lastParams.drawData.slots : [];
 
   const allMatchesByNum = new Map(sl.allMatches.map((m) => [m.num, m]));
@@ -232,9 +271,11 @@ function applySerializedState(state) {
     teamNumbers:       sl.teamNumbers,
     initialTableOrder: [],
     groups:            sl.groups,
+    refSettings:       normalizeRefSettings(sl.refSettings),
     dispatchMode:      sl.dispatchMode,
     lastUndoResult:    sl.lastUndoResult || null,
   };
+  normalizeLiveTimerState();
 
   sectionSettings.classList.add("hidden");
   sectionNames.classList.add("hidden");
@@ -334,6 +375,7 @@ function renderSettingsTab() {
     ["Tables",     p.tableCount || "—"],
     ["Match time", `${p.minMinutes}–${p.maxMinutes} min`],
     ["Format",     dd && dd.splitMode ? "Split pools" : "Full round robin"],
+    ["Referees",   p.refsEnabled ? getRefModeLabel(p.refMode) : "Off"],
     ["Matches",    dd ? dd.totalMatches : "—"],
   ].map(([label, val]) => `
     <div>
@@ -361,6 +403,10 @@ let lastSlots = [];
 let lastParams = null;
 let pendingDrawRequest = null;
 let pendingWinnerConfirm = null;
+let platePairingMode = "random";
+let platePairingSelection = null;
+let platePairingPairsData = [];
+let platePairingAvailableTeams = [];
 
 function getActiveUndoResult() {
   if (!live || !live.lastUndoResult) return null;
@@ -372,6 +418,17 @@ function getActiveUndoResult() {
   return null;
 }
 
+function normalizeRefSettings(refSettings) {
+  if (!refSettings || !refSettings.enabled) {
+    return { enabled: false, loserMode: "none", firstRoundMode: "none" };
+  }
+  return {
+    enabled: true,
+    loserMode: refSettings.loserMode || refSettings.mode || "loser-next-game",
+    firstRoundMode: refSettings.firstRoundMode || "random",
+  };
+}
+
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
 function setStep(n) {
@@ -380,6 +437,158 @@ function setStep(n) {
     if (i + 1 === n) pill.classList.add("active");
     else if (i + 1 < n) pill.classList.add("done");
   });
+}
+
+function updateDrawControlVisibility() {
+  if (!drawActions || !drawModeSubActions || !platePairingSection) return;
+  drawActions.classList.toggle("hidden", !lastParams || !lastParams.drawMode || isLocked);
+  const isPlateDraw = lastParams?.drawMode === "plate";
+  drawModeSubActions.classList.toggle("hidden", !isPlateDraw || isLocked);
+  platePairingSection.classList.toggle("hidden", !isPlateDraw || isLocked || platePairingMode === "manual");
+  if (!lastParams || isLocked) return;
+  redrawBtn?.classList.remove("hidden");
+  acceptBtn?.classList.remove("hidden");
+}
+
+function setDrawModeButtons(mode) {
+  const btns = [drawModeFullBtn, drawModeSplitBtn, drawModePlateBtn];
+  btns.forEach((btn) => btn?.classList.remove("dispatch-mode-btn-active"));
+  const activeBtn = mode === "split"
+    ? drawModeSplitBtn
+    : mode === "plate"
+      ? drawModePlateBtn
+      : drawModeFullBtn;
+  activeBtn?.classList.add("dispatch-mode-btn-active");
+  updateDrawControlVisibility();
+  if (lastParams?.teams?.length) {
+    renderPlatePairing();
+  }
+}
+
+function buildPlatePairings(teams) {
+  const shuffled = shuffle([...teams]);
+  const pairs = [];
+  const remaining = [...shuffled];
+  while (remaining.length >= 2) {
+    const [first, second] = remaining.splice(0, 2);
+    pairs.push([first, second]);
+  }
+  return {
+    pairs,
+    bye: remaining[0] || null,
+  };
+}
+
+function resetPlatePairingState() {
+  platePairingMode = "random";
+  platePairingSelection = null;
+  platePairingPairsData = [];
+  platePairingAvailableTeams = [];
+}
+
+function renderPlatePairing() {
+  if (!platePairingSection || !lastParams?.teams?.length) {
+    platePairingSection?.classList.add("hidden");
+    return;
+  }
+
+  if (lastParams.drawMode !== "plate") {
+    platePairingSection.classList.add("hidden");
+    updateDrawControlVisibility();
+    return;
+  }
+
+  platePairingSection.classList.remove("hidden");
+  [drawModeRandomBtn, drawModeManualBtn].forEach((btn) => btn?.classList.remove("dispatch-mode-btn-active"));
+  if (platePairingMode === "manual") {
+    drawModeManualBtn?.classList.add("dispatch-mode-btn-active");
+  } else {
+    drawModeRandomBtn?.classList.add("dispatch-mode-btn-active");
+  }
+  drawModeRandomBtn?.setAttribute("aria-pressed", String(platePairingMode === "random"));
+  drawModeManualBtn?.setAttribute("aria-pressed", String(platePairingMode === "manual"));
+
+  platePairingHelp.textContent = "Random is selected for this draw mode. Use Re-draw to shuffle the draw.";
+  platePairingStep.classList.add("hidden");
+  platePairingSelected.classList.add("hidden");
+  platePairingFinishedBtn?.classList.add("hidden");
+  drawActions.classList.remove("hidden");
+  redrawBtn?.classList.remove("hidden");
+  acceptBtn.classList.remove("hidden");
+  const pairing = buildPlatePairings(lastParams.teams);
+  platePairingPairsData = pairing.pairs;
+  platePairingAvailableTeams = [];
+  platePairingSelection = null;
+  platePairingBye.classList.toggle("hidden", !pairing.bye);
+  platePairingBye.textContent = pairing.bye ? `Unpaired team: ${pairing.bye}` : "";
+  platePairingPairs.classList.toggle("hidden", pairing.pairs.length === 0);
+  platePairingPairs.innerHTML = pairing.pairs.length
+    ? pairing.pairs.map(([a, b]) => `
+        <div class="plate-pairing-pair"><strong>${a} vs ${b}</strong><span class="muted small">Pair</span></div>
+      `).join("")
+    : "";
+  platePairingAvailable.innerHTML = "";
+  updateDrawControlVisibility();
+}
+
+function setPlatePairingMode(mode) {
+  platePairingMode = mode;
+  if (mode === "manual") {
+    platePairingAvailableTeams = [...lastParams.teams];
+    platePairingSelection = null;
+    platePairingPairsData = [];
+    platePairingPairs.classList.add("hidden");
+    platePairingPairs.innerHTML = "";
+  } else {
+    platePairingSelection = null;
+    platePairingPairsData = [];
+  }
+  renderPlatePairing();
+}
+
+function goToStep(step) {
+  if (step === 1) {
+    sectionSettings.classList.remove("hidden");
+    sectionNames.classList.add("hidden");
+    results.classList.add("hidden");
+    sectionLive.classList.add("hidden");
+    hideSplitDecision();
+    setStep(1);
+    return;
+  }
+
+  if (step === 2) {
+    const fallbackTeamCount = Number.parseInt(document.getElementById("teamCount")?.value || "0", 10) || lastParams?.teamCount || 2;
+    const fallbackTableCount = Number.parseInt(document.getElementById("tableCount")?.value || "0", 10) || lastParams?.tableCount || 1;
+    const existingTeams = teamNameGrid?.querySelectorAll(".team-name-input").length
+      ? readTeamNames()
+      : (lastParams?.teams || []);
+    showTeamNamesStep(fallbackTeamCount, fallbackTableCount, existingTeams);
+    return;
+  }
+
+  if (step === 3) {
+    if (lastParams && lastSlots.length > 0) {
+      sectionSettings.classList.add("hidden");
+      sectionNames.classList.add("hidden");
+      results.classList.remove("hidden");
+      sectionLive.classList.add("hidden");
+      setStep(3);
+      setDrawModeButtons(lastParams.drawMode || "full");
+      return;
+    }
+    return;
+  }
+
+  if (step === 4) {
+    if (isLocked || live) {
+      sectionSettings.classList.add("hidden");
+      sectionNames.classList.add("hidden");
+      results.classList.add("hidden");
+      sectionLive.classList.remove("hidden");
+      setStep(4);
+    }
+  }
 }
 
 // ─── Shuffle ─────────────────────────────────────────────────────────────────
@@ -487,12 +696,60 @@ function validateSettings({ teamCount, tableCount, minMinutes, maxMinutes }) {
   return "";
 }
 
+function getRefModeLabel(mode) {
+  if (mode === "manual") return "Loser refs next game · First round manual";
+  if (mode === "random") return "Loser refs next game · First round random";
+  return "Off";
+}
+
+function canUseRefSettings(teamCount, tableCount) {
+  if (!Number.isInteger(teamCount) || !Number.isInteger(tableCount)) return false;
+  if (teamCount < 2 || tableCount < 1) return false;
+  return teamCount >= tableCount * 3;
+}
+
+function updateRefSettingVisibility() {
+  const teamCount = Number.parseInt(teamCountInput?.value || "0", 10);
+  const tableCount = Number.parseInt(tableCountInput?.value || "0", 10);
+  const refsEligible = canUseRefSettings(teamCount, tableCount);
+  refSettingToggleLabel?.classList.toggle("hidden", !refsEligible);
+  if (!refsEligible) {
+    if (refEnabledInput) {
+      refEnabledInput.checked = false;
+      refEnabledInput.disabled = true;
+    }
+    if (refModeWrap) refModeWrap.classList.add("hidden");
+    if (refModeSelect) refModeSelect.disabled = true;
+    return;
+  }
+
+  if (refEnabledInput) {
+    refEnabledInput.disabled = false;
+  }
+  const enabled = Boolean(refEnabledInput?.checked);
+  if (refModeWrap) {
+    refModeWrap.classList.toggle("hidden", !enabled);
+  }
+  if (refModeSelect) {
+    refModeSelect.disabled = !enabled;
+  }
+}
+
 function getSettingsParams() {
+  const teamCount = Number.parseInt(document.getElementById("teamCount").value, 10);
+  const tableCount = Number.parseInt(document.getElementById("tableCount").value, 10);
+  const minMinutes = Number.parseInt(document.getElementById("minMinutes").value, 10);
+  const maxMinutes = Number.parseInt(document.getElementById("maxMinutes").value, 10);
+  const refsEligible = canUseRefSettings(teamCount, tableCount);
+  const refsEnabled = refsEligible && Boolean(refEnabledInput?.checked);
   return {
-    teamCount:  Number.parseInt(document.getElementById("teamCount").value, 10),
-    tableCount: Number.parseInt(document.getElementById("tableCount").value, 10),
-    minMinutes: Number.parseInt(document.getElementById("minMinutes").value, 10),
-    maxMinutes: Number.parseInt(document.getElementById("maxMinutes").value, 10),
+    teamCount,
+    tableCount,
+    minMinutes,
+    maxMinutes,
+    refsEnabled,
+    refMode: refsEnabled ? (refModeSelect?.value || "random") : "none",
+    loserRefMode: refsEnabled ? "loser-next-game" : "none",
   };
 }
 
@@ -568,21 +825,22 @@ function renderPoolSummary(section, hintEl, gridEl, groups, teamNumbers, options
 
 // ─── Step 1 → Step 2: build team name inputs ──────────────────────────────────
 
-function showTeamNamesStep(teamCount, tableCount) {
+function showTeamNamesStep(teamCount, tableCount, existingTeams = []) {
   teamNameGrid.innerHTML = "";
 
   for (let i = 1; i <= teamCount; i++) {
-    const label = document.createElement("label");
-    label.innerHTML = `
-      <span>Team ${i}</span>
-      <input type="text" class="team-name-input" maxlength="40"
-             placeholder="Team ${i}" value="Team ${i}" data-index="${i - 1}">
-    `;
-    teamNameGrid.appendChild(label);
+   const existingName = existingTeams[i - 1] || `Team ${i}`;
+   const label = document.createElement("label");
+   label.innerHTML = `
+     <span>Team ${i}</span>
+     <input type="text" class="team-name-input" maxlength="40"
+            placeholder="Team ${i}" value="${existingName}" data-index="${i - 1}">
+   `;
+   teamNameGrid.appendChild(label);
   }
 
   namesDescription.textContent =
-    `${teamCount} teams · edit the names below, then generate the draw.`;
+   `${teamCount} teams · edit the names below, then generate the draw.`;
   hideSplitDecision();
 
   sectionSettings.classList.add("hidden");
@@ -602,12 +860,13 @@ function readTeamNames() {
 
 function buildDrawData(params, teams, drawMode) {
   const { tableCount, minMinutes, maxMinutes } = params;
-  const shuffledTeams = shuffle(teams);
+  const arrangedTeams = platePairingMode === "manual" ? [...teams] : shuffle(teams);
   const shouldSplit = drawMode === "split" && tableCount >= 2 && teams.length >= 4;
   const allTableNumbers = Array.from({ length: tableCount }, (_, i) => i + 1);
+  const isPlate = drawMode === "plate";
 
   if (!shouldSplit) {
-    const rounds = buildRounds(shuffledTeams);
+    const rounds = buildRounds(arrangedTeams);
     const slots = combineSlots([buildSlots(rounds, allTableNumbers, "all", "Round")]);
     const matches = slots.flatMap((slot) => slot.assignments);
     return {
@@ -616,12 +875,12 @@ function buildDrawData(params, teams, drawMode) {
       slots,
       roundsCount: rounds.length,
       matches,
-      groupSummary: "Single full round robin",
+      groupSummary: isPlate ? "Plate knockout draw" : "Single full round robin",
       groups: [
         {
           id: "all",
           label: "All teams",
-          teams: shuffledTeams,
+          teams: arrangedTeams,
           tables: allTableNumbers,
         },
       ],
@@ -631,9 +890,9 @@ function buildDrawData(params, teams, drawMode) {
     };
   }
 
-  const half = Math.ceil(shuffledTeams.length / 2);
-  const poolATeams = shuffledTeams.slice(0, half);
-  const poolBTeams = shuffledTeams.slice(half);
+  const half = Math.ceil(arrangedTeams.length / 2);
+  const poolATeams = arrangedTeams.slice(0, half);
+  const poolBTeams = arrangedTeams.slice(half);
   const poolATables = allTableNumbers.slice(0, Math.ceil(tableCount / 2));
   const poolBTables = allTableNumbers.slice(Math.ceil(tableCount / 2));
 
@@ -668,15 +927,94 @@ function buildDrawData(params, teams, drawMode) {
   };
 }
 
+function buildFirstRoundRefContext(teams, firstWindowAssignments) {
+  const playingTeams = new Set(firstWindowAssignments.flatMap((match) => [match.teamA, match.teamB]));
+  const eligibleTeams = teams.filter((team) => !playingTeams.has(team));
+  return { eligibleTeams, playingTeams };
+}
+
+function buildRandomFirstRoundRefs(firstWindowAssignments, eligibleTeams) {
+  if (!firstWindowAssignments.length || !eligibleTeams.length) return {};
+  const pool = shuffle(eligibleTeams);
+  const map = {};
+  firstWindowAssignments.forEach((match, index) => {
+    const pick = pool[index % pool.length];
+    map[match.table] = pick;
+  });
+  return map;
+}
+
+function renderFirstRoundRefPanel(params, firstWindowAssignments, teams) {
+  if (!firstRoundRefSection || !firstRoundRefHint || !firstRoundRefList) return {};
+  if (!params.refsEnabled || firstWindowAssignments.length === 0) {
+    firstRoundRefSection.classList.add("hidden");
+    firstRoundRefHint.textContent = "";
+    firstRoundRefList.innerHTML = "";
+    return {};
+  }
+
+  const { eligibleTeams } = buildFirstRoundRefContext(teams, firstWindowAssignments);
+  firstRoundRefSection.classList.remove("hidden");
+  if (eligibleTeams.length === 0) {
+    firstRoundRefHint.textContent = "No teams are idle in round one, so no first-round refs can be assigned.";
+    firstRoundRefList.innerHTML = "";
+    return {};
+  }
+
+  if (params.refMode === "manual") {
+    firstRoundRefHint.textContent = "Select one ref team for each first-round table.";
+    firstRoundRefList.innerHTML = firstWindowAssignments.map((match) => `
+      <label class="first-round-ref-item">
+        <span>Table ${match.table}: ${match.teamA} vs ${match.teamB}</span>
+        <select class="first-round-ref-select" data-table="${match.table}">
+          <option value="">Select ref team</option>
+          ${eligibleTeams.map((team) => `<option value="${team}">${team}</option>`).join("")}
+        </select>
+      </label>
+    `).join("");
+
+    const manualSelections = {};
+    firstRoundRefList.querySelectorAll(".first-round-ref-select").forEach((select) => {
+      select.addEventListener("change", () => {
+        const tableNum = Number.parseInt(select.dataset.table || "0", 10);
+        if (!tableNum) return;
+        manualSelections[tableNum] = select.value || "";
+        if (lastParams) {
+          lastParams.firstRoundRefAssignments = { ...manualSelections };
+        }
+        const assignmentEl = scheduleBody?.querySelector(`.assignment[data-table="${tableNum}"]`);
+        if (assignmentEl) {
+          const baseText = assignmentEl.dataset.baseText || assignmentEl.textContent || "";
+          assignmentEl.textContent = `${baseText} · Ref: ${select.value || "TBD"}`;
+        }
+      });
+    });
+    return manualSelections;
+  }
+
+  const randomAssignments = buildRandomFirstRoundRefs(firstWindowAssignments, eligibleTeams);
+  firstRoundRefHint.textContent = "Random refs assigned from teams not playing in round one. Re-draw to reshuffle.";
+  firstRoundRefList.innerHTML = firstWindowAssignments.map((match) => `
+    <div class="first-round-ref-item">
+      <span>Table ${match.table}: ${match.teamA} vs ${match.teamB}</span>
+      <strong>${randomAssignments[match.table] || "—"}</strong>
+    </div>
+  `).join("");
+  return randomAssignments;
+}
+
 function runDraw(params, teams, drawMode) {
   const { tableCount, minMinutes, maxMinutes } = params;
   const drawData = buildDrawData(params, teams, drawMode);
   const { slots } = drawData;
   const teamNumbers = Object.fromEntries(teams.map((team, index) => [team, index + 1]));
+  const previewSlots = slots.slice(0, 1);
+  const firstWindowAssignments = (previewSlots[0]?.assignments || []).slice(0, tableCount);
 
   lastSlots = slots;
-  lastParams = { ...params, teams, drawMode, drawData };
+  lastParams = { ...params, teams, drawMode, drawData, firstRoundRefAssignments: {} };
   hideSplitDecision();
+  setDrawModeButtons(drawMode);
 
   // Seed label
   drawSeedLabel.textContent = `#${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -691,7 +1029,7 @@ function runDraw(params, teams, drawMode) {
     `${fmt(slots.length * minMinutes)} – ${fmt(slots.length * maxMinutes)} (avg ${fmt(slots.length * avg)})`;
   scheduleDescriptionEl.textContent =
     `${teams.length} teams · ${totalMatches} matches · ${tableCount} tables · ${slots.length} scheduling windows · ${drawData.groupSummary}`;
-  redrawBtn.textContent = drawData.splitMode ? "↺ Re-draw pools" : "↺ Re-draw";
+  redrawBtn.textContent = "↺ Re-draw";
   renderPoolSummary(
     poolSummarySection,
     poolSummaryHint,
@@ -708,31 +1046,33 @@ function runDraw(params, teams, drawMode) {
 
   // Schedule table
   scheduleBody.innerHTML = "";
-  slots.forEach((slot, index) => {
+  const { eligibleTeams: firstRoundRefEligibleTeams } = buildFirstRoundRefContext(teams, firstWindowAssignments);
+  const firstRoundRefAssignments = renderFirstRoundRefPanel(params, firstWindowAssignments, teams);
+  lastParams.firstRoundRefAssignments = { ...firstRoundRefAssignments };
+  lastParams.firstRoundRefRequiredTables = params.refsEnabled && params.refMode === "manual" && firstRoundRefEligibleTeams.length > 0
+    ? firstWindowAssignments.map((match) => match.table)
+    : [];
+  previewSlots.forEach((slot, index) => {
     const row = document.createElement("tr");
-    const assignDiv = document.createElement("div");
-    assignDiv.className = "assignments";
-
-    for (let t = 1; t <= tableCount; t++) {
-      const match = slot.assignments.find((a) => a.table === t);
-      const cell = document.createElement("div");
-      cell.className = `assignment${match ? "" : " idle"}`;
-      cell.textContent = match
-        ? `Table ${t}: ${match.teamA} vs ${match.teamB}`
-        : `Table ${t}: idle`;
-      assignDiv.appendChild(cell);
+    let assignDiv = null;
+    if (index === 0) {
+      assignDiv = document.createElement("div");
+      assignDiv.className = "assignments";
+      firstWindowAssignments.forEach((match, matchIndex) => {
+        const tableNumber = matchIndex + 1;
+        const cell = document.createElement("div");
+        cell.className = "assignment";
+        cell.dataset.table = String(match.table);
+        cell.dataset.baseText = `Table ${tableNumber}: ${match.teamA} vs ${match.teamB}`;
+        const refText = lastParams.refsEnabled
+          ? ` · Ref: ${firstRoundRefAssignments[match.table] || "TBD"}`
+          : "";
+        cell.textContent = `${cell.dataset.baseText}${refText}`;
+        assignDiv.appendChild(cell);
+      });
     }
-
-    const fS = fmt(index * minMinutes),       fE = fmt((index + 1) * minMinutes);
-    const sS = fmt(index * maxMinutes),       sE = fmt((index + 1) * maxMinutes);
-    const aS = fmt(index * avg),              aE = fmt((index + 1) * avg);
-
-    row.innerHTML = `
-      <td>Window ${slot.slotNumber}<br><span class="muted">${slot.label}</span></td>
-      <td>${fS}–${fE} (fastest)<br>${sS}–${sE} (slowest)<br><span class="muted">Avg ${aS}–${aE}</span></td>
-      <td></td>
-    `;
-    row.children[2].appendChild(assignDiv);
+    row.innerHTML = "<td></td>";
+    if (assignDiv) row.children[0].appendChild(assignDiv);
     scheduleBody.appendChild(row);
   });
 
@@ -744,6 +1084,7 @@ function runDraw(params, teams, drawMode) {
   sectionNames.classList.add("hidden");
   results.classList.remove("hidden");
   setStep(3);
+  setDrawModeButtons(drawMode);
 }
 
 // ─── Lock / Accept ────────────────────────────────────────────────────────────
@@ -766,6 +1107,13 @@ function lockDraw() {
 
 // ─── Event wiring ─────────────────────────────────────────────────────────────
 
+refEnabledInput?.addEventListener("change", () => {
+  updateRefSettingVisibility();
+});
+teamCountInput?.addEventListener("input", updateRefSettingVisibility);
+tableCountInput?.addEventListener("input", updateRefSettingVisibility);
+updateRefSettingVisibility();
+
 form.addEventListener("submit", (e) => {
   e.preventDefault();
   const params = getSettingsParams();
@@ -776,11 +1124,7 @@ form.addEventListener("submit", (e) => {
 });
 
 backBtn.addEventListener("click", () => {
-  sectionNames.classList.add("hidden");
-  sectionSettings.classList.remove("hidden");
-  results.classList.add("hidden");
-  hideSplitDecision();
-  setStep(1);
+  goToStep(1);
 });
 
 generateDrawBtn.addEventListener("click", () => {
@@ -798,24 +1142,87 @@ generateDrawBtn.addEventListener("click", () => {
   runDraw(params, teams, "full");
 });
 
-drawFullBtn.addEventListener("click", () => {
+drawFullBtn?.addEventListener("click", () => {
   if (!pendingDrawRequest) return;
   runDraw(pendingDrawRequest.params, pendingDrawRequest.teams, "full");
 });
 
-drawSplitBtn.addEventListener("click", () => {
+drawSplitBtn?.addEventListener("click", () => {
   if (!pendingDrawRequest) return;
   runDraw(pendingDrawRequest.params, pendingDrawRequest.teams, "split");
 });
 
+drawPlateBtn?.addEventListener("click", () => {
+  if (!pendingDrawRequest) return;
+  runDraw(pendingDrawRequest.params, pendingDrawRequest.teams, "plate");
+});
+
+drawModeFullBtn?.addEventListener("click", () => {
+  if (!lastParams || isLocked) return;
+  runDraw(lastParams, lastParams.teams, "full");
+});
+
+drawModeSplitBtn?.addEventListener("click", () => {
+  if (!lastParams || isLocked) return;
+  runDraw(lastParams, lastParams.teams, "split");
+});
+
+drawModePlateBtn?.addEventListener("click", () => {
+  if (!lastParams || isLocked) return;
+  runDraw(lastParams, lastParams.teams, "plate");
+});
+
+drawModeRandomBtn?.addEventListener("click", () => {
+  if (!lastParams || isLocked) return;
+  setPlatePairingMode("random");
+});
+
+drawModeManualBtn?.addEventListener("click", () => {
+  if (!lastParams || isLocked) return;
+  setPlatePairingMode("manual");
+});
+
+platePairingFinishedBtn?.addEventListener("click", () => {
+  if (!lastParams || lastParams.drawMode !== "plate" || isLocked) return;
+  setPlatePairingMode("random");
+});
+
 redrawBtn.addEventListener("click", () => {
   if (isLocked) return;
+  if (lastParams?.drawMode === "plate") {
+    if (platePairingMode === "manual") {
+      setPlatePairingMode("random");
+      return;
+    }
+    renderPlatePairing();
+    return;
+  }
   runDraw(lastParams, lastParams.teams, lastParams.drawMode);
 });
 
 acceptBtn.addEventListener("click", () => {
   if (isLocked) return;
+  if (lastParams?.refsEnabled && lastParams?.refMode === "manual") {
+    const requiredTables = lastParams.firstRoundRefRequiredTables || [];
+    const selectedRefs = lastParams.firstRoundRefAssignments || {};
+    const allSelected = requiredTables.every((tableNum) => {
+      const refTeam = selectedRefs[tableNum];
+      return typeof refTeam === "string" && refTeam.length > 0;
+    });
+    if (!allSelected) {
+      alert("Please select a first-round referee team for every table before accepting the draw.");
+      return;
+    }
+  }
   lockDraw();
+});
+
+[step1Pill, step2Pill, step3Pill, step4Pill].forEach((pill) => {
+  pill?.addEventListener("click", () => {
+    const step = Number.parseInt(pill.dataset.step || "0", 10);
+    if (!step) return;
+    goToStep(step);
+  });
 });
 
 // ─── Live board ───────────────────────────────────────────────────────────────
@@ -828,6 +1235,7 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
     ...match,
     num: index + 1,
   }));
+  const firstRoundRefs = lastParams?.firstRoundRefAssignments || {};
 
   live = {
     allMatches,
@@ -837,6 +1245,8 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
       state: "free",   // "playing" | "free" | "waiting" | "done"
       currentMatch: null,
       matchesPlayed: 0,
+      pendingRefTeam: null,
+      firstRoundRefTeam: firstRoundRefs[i + 1] || null,
     })),
     activePairs: new Set(),
     playCount: Object.fromEntries(teams.map((t) => [t, 0])),
@@ -851,6 +1261,11 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
     teamNumbers: Object.fromEntries(teams.map((team, index) => [team, index + 1])),
     initialTableOrder: shuffle(Array.from({ length: tableCount }, (_, i) => i + 1)),
     groups: drawData.groups,
+    refSettings: normalizeRefSettings({
+      enabled: Boolean(lastParams?.refsEnabled),
+      loserMode: lastParams?.refsEnabled ? (lastParams?.loserRefMode || "loser-next-game") : "none",
+      firstRoundMode: lastParams?.refsEnabled ? (lastParams?.refMode || "random") : "none",
+    }),
     dispatchMode: "waiting",
     lastUndoResult: null,
   };
@@ -923,19 +1338,96 @@ function eligibleMatches(table = null) {
     .sort(compareEligibleMatches);
 }
 
+function assignLoserRefForTable(table, match) {
+  if (!live?.refSettings?.enabled || live.refSettings.loserMode !== "loser-next-game") return null;
+  const pendingRef = table.pendingRefTeam || null;
+  if (!pendingRef) return null;
+  if (pendingRef === match.teamA || pendingRef === match.teamB) return null;
+  table.pendingRefTeam = null;
+  return pendingRef;
+}
+
+function assignFirstRoundRefForTable(table, match) {
+  if (!live?.refSettings?.enabled) return null;
+  if (table.matchesPlayed !== 0 || table.pendingRefTeam) return null;
+  const firstRoundRefTeam = table.firstRoundRefTeam || null;
+  if (!firstRoundRefTeam) return null;
+  if (firstRoundRefTeam === match.teamA || firstRoundRefTeam === match.teamB) return null;
+  table.firstRoundRefTeam = null;
+  return firstRoundRefTeam;
+}
+
 function assignMatch(tableNum, match) {
   const idx = live.queue.indexOf(match);
   if (idx === -1) return;
   live.queue.splice(idx, 1);
 
   const table = live.tables.find((t) => t.num === tableNum);
+  const assignedRefTeam = assignFirstRoundRefForTable(table, match) || assignLoserRefForTable(table, match);
   table.currentMatch = {
     ...match,
     startedAtMs: Date.now(),
+    runningStartedAtMs: null,
+    elapsedBeforePauseSeconds: 0,
+    timerState: "ready",
+    refTeam: assignedRefTeam,
   };
   table.state = "playing";
   live.activePairs.add(match.teamA);
   live.activePairs.add(match.teamB);
+}
+
+function normalizeCurrentMatchTimer(match) {
+  if (!match) return;
+  if (!Number.isFinite(match.elapsedBeforePauseSeconds) || match.elapsedBeforePauseSeconds < 0) {
+    match.elapsedBeforePauseSeconds = 0;
+  }
+
+  if (match.timerState !== "ready" && match.timerState !== "running" && match.timerState !== "paused") {
+    if (Number.isFinite(match.runningStartedAtMs)) {
+      match.timerState = "running";
+    } else if (Number.isFinite(match.startedAtMs)) {
+      match.timerState = "running";
+      match.runningStartedAtMs = match.startedAtMs;
+    } else {
+      match.timerState = "ready";
+    }
+  }
+
+  if (match.timerState === "running") {
+    if (!Number.isFinite(match.runningStartedAtMs)) {
+      match.runningStartedAtMs = Number.isFinite(match.startedAtMs) ? match.startedAtMs : Date.now();
+    }
+    if (!Number.isFinite(match.startedAtMs)) {
+      match.startedAtMs = match.runningStartedAtMs;
+    }
+    return;
+  }
+
+  match.runningStartedAtMs = null;
+  if (!Number.isFinite(match.startedAtMs)) {
+    match.startedAtMs = Date.now();
+  }
+}
+
+function getCurrentMatchElapsedSeconds(match) {
+  if (!match) return 0;
+  normalizeCurrentMatchTimer(match);
+  const baseElapsed = Math.max(0, Math.floor(match.elapsedBeforePauseSeconds || 0));
+  if (match.timerState !== "running" || !Number.isFinite(match.runningStartedAtMs)) {
+    return baseElapsed;
+  }
+  const runningElapsed = Math.max(0, Math.floor((Date.now() - match.runningStartedAtMs) / 1000));
+  return baseElapsed + runningElapsed;
+}
+
+function normalizeLiveTimerState() {
+  if (!live || !Array.isArray(live.tables)) return;
+  live.tables.forEach((table) => {
+    if (table && table.currentMatch) {
+      normalizeCurrentMatchTimer(table.currentMatch);
+    }
+  });
 }
 
 function clearMatchOutcome(match) {
@@ -964,6 +1456,8 @@ function handleWinnerButtonClick(btn) {
 
   const table = live.tables.find((t) => t.num === tableNum);
   if (!table || table.state !== "playing" || !table.currentMatch) return;
+  normalizeCurrentMatchTimer(table.currentMatch);
+  if (table.currentMatch.timerState === "ready") return;
 
   const confirming = pendingWinnerConfirm
     && pendingWinnerConfirm.tableNum === tableNum
@@ -978,15 +1472,54 @@ function handleWinnerButtonClick(btn) {
   finishMatch(tableNum, winnerTeam);
 }
 
+function handleTimerActionClick(btn) {
+  const tableNum = Number(btn.dataset.table);
+  const action = btn.dataset.timerAction;
+  if (!tableNum || !action) return;
+  const table = live.tables.find((t) => t.num === tableNum);
+  if (!table || table.state !== "playing" || !table.currentMatch) return;
+
+  const match = table.currentMatch;
+  normalizeCurrentMatchTimer(match);
+
+  if (action === "start" && match.timerState === "ready") {
+    const now = Date.now();
+    match.timerState = "running";
+    match.runningStartedAtMs = now;
+    match.startedAtMs = now;
+    renderLiveBoard();
+    sendState();
+    return;
+  }
+
+  if (action === "pause" && match.timerState === "running") {
+    match.elapsedBeforePauseSeconds = getCurrentMatchElapsedSeconds(match);
+    match.runningStartedAtMs = null;
+    match.timerState = "paused";
+    renderLiveBoard();
+    sendState();
+    return;
+  }
+
+  if (action === "resume" && match.timerState === "paused") {
+    match.timerState = "running";
+    match.runningStartedAtMs = Date.now();
+    renderLiveBoard();
+    sendState();
+  }
+}
+
 function finishMatch(tableNum, winnerTeam) {
   const table = live.tables.find((t) => t.num === tableNum);
   if (table.state !== "playing") return;
 
   const m = table.currentMatch;
+  normalizeCurrentMatchTimer(m);
   if (winnerTeam !== m.teamA && winnerTeam !== m.teamB) return;
   clearWinnerConfirmation();
   const loserTeam = winnerTeam === m.teamA ? m.teamB : m.teamA;
-  const elapsedSeconds = Math.max(1, Math.round((Date.now() - m.startedAtMs) / 1000));
+  const elapsedSeconds = Math.max(1, getCurrentMatchElapsedSeconds(m));
+  const matchStartedAtMs = Number.isFinite(m.startedAtMs) ? m.startedAtMs : Date.now();
   const finishedAt = Date.now();
 
   live.lastUndoResult = {
@@ -999,9 +1532,10 @@ function finishMatch(tableNum, winnerTeam) {
     winnerTeam,
     loserTeam,
     previousMatchesPlayed: table.matchesPlayed,
+    previousPendingRefTeam: table.pendingRefTeam || null,
     previousLastFinishedAtMs: {
-      [m.teamA]: live.lastFinishedAtMs[m.teamA] || m.startedAtMs,
-      [m.teamB]: live.lastFinishedAtMs[m.teamB] || m.startedAtMs,
+      [m.teamA]: live.lastFinishedAtMs[m.teamA] || matchStartedAtMs,
+      [m.teamB]: live.lastFinishedAtMs[m.teamB] || matchStartedAtMs,
     },
     undoExpiresAtMs: finishedAt + 60000,
   };
@@ -1027,6 +1561,9 @@ function finishMatch(tableNum, winnerTeam) {
   live.loggedGameSeconds += elapsedSeconds;
   table.currentMatch = null;
   table.matchesPlayed++;
+  if (live.refSettings?.enabled && live.refSettings.loserMode === "loser-next-game") {
+    table.pendingRefTeam = loserTeam;
+  }
   table.state = "free";
   autoDispatchAndRender(table.num);
   sendState();
@@ -1065,7 +1602,11 @@ function undoLastResult() {
   table.currentMatch = {
     ...snapshot.match,
     startedAtMs: Date.now() - (snapshot.elapsedSeconds * 1000),
+    runningStartedAtMs: Date.now(),
+    elapsedBeforePauseSeconds: snapshot.elapsedSeconds,
+    timerState: "running",
   };
+  table.pendingRefTeam = snapshot.previousPendingRefTeam || null;
   table.matchesPlayed = snapshot.previousMatchesPlayed;
   table.state = "playing";
   live.activePairs.add(snapshot.match.teamA);
@@ -1276,7 +1817,7 @@ function ensureLiveTicker() {
       if (table.state !== "playing" || !table.currentMatch) return;
       const timerEl = document.getElementById(`timer-table-${table.num}`);
       if (!timerEl) return;
-      const elapsed = Math.max(1, Math.floor((Date.now() - table.currentMatch.startedAtMs) / 1000));
+      const elapsed = getCurrentMatchElapsedSeconds(table.currentMatch);
       timerEl.textContent = fmtClock(elapsed);
     });
 
@@ -1342,10 +1883,16 @@ function renderDashboard() {
 
   tablesEl.innerHTML = live.tables.map((table) => {
     if (table.state === "playing" && table.currentMatch) {
+      const elapsed = getCurrentMatchElapsedSeconds(table.currentMatch);
+      const timerState = table.currentMatch.timerState === "paused"
+        ? "paused"
+        : table.currentMatch.timerState === "ready"
+          ? "not started"
+          : "running";
       return `
         <article class="dashboard-table-item">
           <div class="dashboard-table-main">Table ${table.num}: ${table.currentMatch.teamA} vs ${table.currentMatch.teamB}</div>
-          <div class="dashboard-table-meta">${table.matchesPlayed} played · ${fmtClock(Math.max(1, Math.floor((Date.now() - table.currentMatch.startedAtMs) / 1000)))} running</div>
+          <div class="dashboard-table-meta">${table.matchesPlayed} played · ${fmtClock(elapsed)} ${timerState}</div>
         </article>
       `;
     }
@@ -1434,7 +1981,11 @@ function renderDashboard() {
   const playingByNum = new Map(
     live.tables
       .filter((table) => table.state === "playing" && table.currentMatch)
-      .map((table) => [table.currentMatch.num, { tableNum: table.num, startedAtMs: table.currentMatch.startedAtMs }])
+      .map((table) => [table.currentMatch.num, {
+        tableNum: table.num,
+        elapsedSeconds: getCurrentMatchElapsedSeconds(table.currentMatch),
+        timerState: table.currentMatch.timerState || "running",
+      }])
   );
   gamesSummaryEl.textContent = `${live.completed.length} played · ${activeTables} playing · ${remaining} pending`;
   gamesGridEl.className = "games-status-grid";
@@ -1502,6 +2053,11 @@ function renderLiveTables() {
       handleWinnerButtonClick(btn);
     });
   });
+  grid.querySelectorAll("[data-timer-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      handleTimerActionClick(btn);
+    });
+  });
   grid.querySelectorAll("[data-undo-result='1']").forEach((btn) => {
     btn.addEventListener("click", () => {
       undoLastResult();
@@ -1536,9 +2092,19 @@ function buildLiveTableCard(table) {
 
     if (table.state === "playing") {
       const m = table.currentMatch;
+      normalizeCurrentMatchTimer(m);
       const aPts = live.points[m.teamA] || 0;
       const bPts = live.points[m.teamB] || 0;
-      const elapsed = Math.max(1, Math.floor((Date.now() - m.startedAtMs) / 1000));
+      const elapsed = getCurrentMatchElapsedSeconds(m);
+      const isReady = m.timerState === "ready";
+      const isPaused = m.timerState === "paused";
+      const timerAction = isReady ? "start" : isPaused ? "resume" : "pause";
+      const timerActionLabel = isReady ? "Start game" : isPaused ? "Resume game" : "Pause game";
+      const refereeLabel = m.refTeam
+        ? `Referee: ${m.refTeam}`
+        : live.refSettings?.enabled
+          ? "Referee: not assigned yet"
+          : "";
       const confirmState = winnerConfirmState(table.num);
       const teamAConfirming = Boolean(confirmState && confirmState.winnerTeam === m.teamA);
       const teamBConfirming = Boolean(confirmState && confirmState.winnerTeam === m.teamB);
@@ -1553,10 +2119,12 @@ function buildLiveTableCard(table) {
           <span class="live-timer-label">Match timer</span>
           <strong id="timer-table-${table.num}" class="live-timer">${fmtClock(elapsed)}</strong>
         </div>
-        <div class="result-prompt">Select winner:</div>
+        ${refereeLabel ? `<div class="live-referee">${refereeLabel}</div>` : ""}
+        <div class="result-prompt">${isReady ? "Start game before selecting winner:" : "Select winner:"}</div>
         <div class="result-actions">
-          <button class="btn-win ${teamAConfirming ? "btn-win-confirming" : ""}" data-table="${table.num}" data-winner="${m.teamA}" ${teamAConfirming ? 'data-confirming="1"' : ""}>${teamAConfirming ? `Are you sure ${m.teamA} won?` : `${m.teamA} won`}</button>
-          <button class="btn-win ${teamBConfirming ? "btn-win-confirming" : ""}" data-table="${table.num}" data-winner="${m.teamB}" ${teamBConfirming ? 'data-confirming="1"' : ""}>${teamBConfirming ? `Are you sure ${m.teamB} won?` : `${m.teamB} won`}</button>
+          <button class="btn-win ${teamAConfirming ? "btn-win-confirming" : ""}" data-table="${table.num}" data-winner="${m.teamA}" ${teamAConfirming ? 'data-confirming="1"' : ""} ${isReady ? "disabled" : ""}>${teamAConfirming ? `Are you sure ${m.teamA} won?` : `${m.teamA} won`}</button>
+          <button class="btn-secondary btn-game-control" data-table="${table.num}" data-timer-action="${timerAction}">${timerActionLabel}</button>
+          <button class="btn-win ${teamBConfirming ? "btn-win-confirming" : ""}" data-table="${table.num}" data-winner="${m.teamB}" ${teamBConfirming ? 'data-confirming="1"' : ""} ${isReady ? "disabled" : ""}>${teamBConfirming ? `Are you sure ${m.teamB} won?` : `${m.teamB} won`}</button>
           ${undoButtonMarkup(table.num)}
         </div>
       `;
@@ -1565,6 +2133,7 @@ function buildLiveTableCard(table) {
         <div class="live-waiting">
           <div class="live-waiting-icon">✅</div>
           <p>No more matches</p>
+          ${table.pendingRefTeam ? `<p class="muted small">Pending ref: ${table.pendingRefTeam}</p>` : ""}
         </div>
         ${undoButtonMarkup(table.num)}
       `;
@@ -1577,6 +2146,7 @@ function buildLiveTableCard(table) {
           <div class="live-waiting-icon">⏳</div>
           <p>No eligible match right now</p>
           ${nextUp ? `<p class="muted small">Next: ${nextUp}</p>` : ""}
+          ${table.pendingRefTeam ? `<p class="muted small">Pending ref: ${table.pendingRefTeam}</p>` : ""}
         </div>
         ${undoButtonMarkup(table.num)}
       `;
@@ -1587,6 +2157,7 @@ function buildLiveTableCard(table) {
           <div class="live-waiting-icon">✅</div>
           <p>Table ready</p>
           ${nextReady ? `<p class="muted small">Next: ${nextReady.groupLabel ? `${nextReady.groupLabel}: ` : ""}${nextReady.teamA} vs ${nextReady.teamB}</p>` : ""}
+          ${table.pendingRefTeam ? `<p class="muted small">Pending ref: ${table.pendingRefTeam}</p>` : ""}
         </div>
         ${undoButtonMarkup(table.num)}
       `;
@@ -1750,7 +2321,11 @@ function renderGamesStatusTable() {
   const playingByNum = new Map(
     live.tables
       .filter((table) => table.state === "playing" && table.currentMatch)
-      .map((table) => [table.currentMatch.num, { tableNum: table.num, startedAtMs: table.currentMatch.startedAtMs }])
+      .map((table) => [table.currentMatch.num, {
+        tableNum: table.num,
+        elapsedSeconds: getCurrentMatchElapsedSeconds(table.currentMatch),
+        timerState: table.currentMatch.timerState || "running",
+      }])
   );
 const playedCount = live.completed.length;
 const totalCount = live.total;
@@ -1785,13 +2360,11 @@ for (let start = 0; start < matches.length; start += chunkSize) {
     const statusClass = isPlayed ? "game-chip-played" : isPlaying ? "game-chip-playing" : "game-chip-pending";
     const teamA = live.teamNumbers[match.teamA] || "?";
     const teamB = live.teamNumbers[match.teamB] || "?";
-    const playingElapsed = isPlaying
-      ? Math.max(1, Math.floor((Date.now() - playingMeta.startedAtMs) / 1000))
-      : 0;
+    const playingElapsed = isPlaying ? Math.max(0, Math.floor(playingMeta.elapsedSeconds || 0)) : 0;
     const duration = isPlayed
       ? `<span class="game-chip-time">T${completed.tableNum || "-"} (${fmtClock(completed.durationSeconds || 0)})</span>`
       : isPlaying
-        ? `<span class="game-chip-time">* T${playingMeta.tableNum} (${fmtClock(playingElapsed)})</span>`
+        ? `<span class="game-chip-time">* T${playingMeta.tableNum} (${playingMeta.timerState === "ready" ? "not started" : playingMeta.timerState === "paused" ? `paused ${fmtClock(playingElapsed)}` : fmtClock(playingElapsed)})</span>`
         : "";
 
     return `
@@ -1954,6 +2527,9 @@ function renderTournamentList(tournaments) {
     const visibilityAction = adminSessionLoggedIn && Object.prototype.hasOwnProperty.call(tournament, "hidden")
       ? `<button type="button" class="btn-ghost tournament-action-btn" data-action="toggle-hidden" data-id="${escapeHtml(tournament.id)}" data-hidden="${tournament.hidden ? "1" : "0"}">${tournament.hidden ? "Show" : "Hide"}</button>`
       : "";
+    const deleteAction = adminSessionLoggedIn
+      ? `<button type="button" class="btn-ghost tournament-action-btn tournament-delete-list-btn" data-action="delete" data-id="${escapeHtml(tournament.id)}" data-hidden="${tournament.hidden ? "1" : "0"}">Delete</button>`
+      : "";
 
     return `
       <article class="tournament-item">
@@ -1963,6 +2539,7 @@ function renderTournamentList(tournaments) {
         <div class="admin-actions" style="margin-top:0.75rem;">
           <button type="button" class="btn-secondary tournament-action-btn" data-action="open" data-id="${escapeHtml(tournament.id)}">Open</button>
           ${visibilityAction}
+          ${deleteAction}
         </div>
       </article>
     `;
@@ -2096,6 +2673,38 @@ async function handleTournamentListClick(event) {
       await loadTournamentList();
     } catch (error) {
       setStatusMessage(adminMessage, error.message || "Could not update tournament visibility.", "error");
+    }
+    return;
+  }
+
+  if (button.dataset.action === "delete") {
+    if (!confirm("Delete this tournament? This cannot be undone.")) return;
+    try {
+      if (button.dataset.hidden !== "1") {
+        const hideResponse = await fetch(apiUrl("set-tournament-hidden"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tournamentId, hidden: true }),
+        });
+        const hidePayload = await hideResponse.json();
+        if (!hidePayload || !hidePayload.ok) {
+          throw new Error(hidePayload && hidePayload.error ? hidePayload.error : "Could not hide tournament before delete.");
+        }
+      }
+
+      const response = await fetch(apiUrl("set-tournament-deleted"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tournamentId }),
+      });
+      const payload = await response.json();
+      if (!payload || !payload.ok) {
+        throw new Error(payload && payload.error ? payload.error : "Could not delete tournament.");
+      }
+      setStatusMessage(adminMessage, "Tournament deleted.", "success");
+      await loadTournamentList();
+    } catch (error) {
+      setStatusMessage(adminMessage, error.message || "Could not delete tournament.", "error");
     }
   }
 }

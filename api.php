@@ -9,18 +9,16 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 $scriptName = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
 $isPoolTestDeployment = preg_match('#(?:^|/)pool_test(?:/|$)#i', $scriptName) === 1;
+$host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+$host = preg_replace('/:\d+$/', '', $host) ?? $host;
+$isLocalhost = in_array($host, ['localhost', '127.0.0.1', '::1'], true);
 
-$configPaths = [];
-if ($isPoolTestDeployment) {
-    $configPaths[] = __DIR__ . '/config.pool_test.php';
-}
-$configPaths[] = __DIR__ . '/config.php';
-if ($isPoolTestDeployment) {
-    $configPaths[] = __DIR__ . '/public/config.pool_test.php';
-}
-$configPaths[] = __DIR__ . '/public/config.php';
 $configPath = '';
-foreach ($configPaths as $candidate) {
+$configCandidates = [
+    __DIR__ . '/config.php',
+    __DIR__ . '/public/config.php',
+];
+foreach ($configCandidates as $candidate) {
     if (is_file($candidate)) {
         $configPath = $candidate;
         break;
@@ -28,24 +26,37 @@ foreach ($configPaths as $candidate) {
 }
 
 if ($configPath === '') {
-    $expectedConfig = $isPoolTestDeployment ? 'config.pool_test.php (preferred) or config.php' : 'config.php';
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'error' => "Missing {$expectedConfig}. Copy config.sample.php and add your MySQL details.",
+        'error' => 'Missing config.php. Copy config.sample.php and add your MySQL details.',
     ]);
     exit;
 }
 
 $config = require $configPath;
-if (!is_array($config) || !isset($config['db'])) {
+if (!is_array($config)) {
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'error' => 'Invalid config.php. Expected a db configuration array.',
+        'error' => 'Invalid config.php. Expected a config array.',
     ]);
     exit;
 }
+
+$environmentKey = $isLocalhost
+    ? ($isPoolTestDeployment ? 'local_test' : 'local')
+    : ($isPoolTestDeployment ? 'live_test' : 'live');
+$selectedEnvironment = $config[$environmentKey] ?? null;
+if (!is_array($selectedEnvironment) || !isset($selectedEnvironment['db']) || !is_array($selectedEnvironment['db'])) {
+    http_response_code(500);
+    echo json_encode([
+        'ok' => false,
+        'error' => 'Invalid config.php. Expected a db configuration for the selected environment.',
+    ]);
+    exit;
+}
+$dbConfig = $selectedEnvironment['db'];
 
 function respond(array $payload, int $status = 200): never
 {
@@ -212,7 +223,7 @@ function readJsonBody(): array
 }
 
 $action = isset($_GET['action']) ? (string) $_GET['action'] : '';
-$pdo = db($config['db']);
+$pdo = db($dbConfig);
 
 if ($action === 'auth-status') {
     respond([

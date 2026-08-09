@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pool Draw Scheduler</title>
-  <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./auth.css">
+  <link rel="stylesheet" href="./styles.css?v=20260809g">
+  <link rel="stylesheet" href="./auth.css?v=20260809g">
 </head>
 <body data-portal-mode="public" data-api-base="./api.php" data-public-home="./">
   <section class="auth-shell" id="auth-shell">
@@ -111,6 +111,17 @@
           <span>Max match length (min)</span>
           <input id="maxMinutes" name="maxMinutes" type="number" min="1" max="300" value="45" required>
         </label>
+        <label class="ref-setting-toggle">
+          <span>Ref option</span>
+          <input id="refEnabled" name="refEnabled" type="checkbox">
+        </label>
+        <label id="refModeWrap" class="hidden">
+          <span>First round refs</span>
+          <select id="refMode" name="refMode">
+            <option value="random" selected>Random team refs first round</option>
+            <option value="manual">Manual ref team selection</option>
+          </select>
+        </label>
         <div class="actions">
           <button type="submit">Next: Enter team names →</button>
         </div>
@@ -164,20 +175,26 @@
 
       <div class="panel">
         <div class="panel-heading">
-          <div>
+          <div class="panel-heading-main">
             <h2>Schedule <span id="drawSeedLabel" class="seed-label"></span></h2>
             <p id="scheduleDescription" class="muted"></p>
           </div>
-          <div id="drawActions" class="draw-actions">
-            <button type="button" id="redrawBtn" class="btn-secondary">↺ Re-draw</button>
-            <button type="button" id="acceptBtn" class="btn-accept">✓ Accept draw</button>
+          <div class="panel-heading-actions">
+            <div id="drawModeActions" class="draw-mode-actions">
+              <button type="button" id="draw-mode-full-btn" class="btn-secondary dispatch-mode-btn-active">Full round robin</button>
+              <button type="button" id="draw-mode-split-btn" class="btn-secondary">Split into 2 pools</button>
+              <button type="button" id="draw-mode-plate-btn" class="btn-secondary">Plate knockout</button>
+            </div>
+            <div id="drawModeSubActions" class="draw-mode-sub-actions">
+              <button type="button" id="draw-mode-random-btn" class="btn-secondary">Random</button>
+              <button type="button" id="draw-mode-manual-btn" class="btn-secondary">Manual</button>
+            </div>
+            <div id="drawActions" class="draw-actions hidden">
+              <button type="button" id="redrawBtn" class="btn-secondary">↺ Re-draw</button>
+              <button type="button" id="acceptBtn" class="btn-accept">✓ Accept draw</button>
+            </div>
+            <div id="lockedBadge" class="locked-badge hidden">🔒 Draw locked</div>
           </div>
-          <div id="drawModeActions" class="draw-mode-actions">
-            <button type="button" id="draw-mode-full-btn" class="btn-secondary dispatch-mode-btn-active">Full round robin</button>
-            <button type="button" id="draw-mode-split-btn" class="btn-secondary">Split into 2 pools</button>
-            <button type="button" id="draw-mode-plate-btn" class="btn-secondary">Plate knockout</button>
-          </div>
-          <div id="lockedBadge" class="locked-badge hidden">🔒 Draw locked</div>
         </div>
 
         <!-- Per-table draw cards shown after lock -->
@@ -200,11 +217,6 @@
             <span id="plate-pairing-help" class="muted"></span>
           </div>
           <p id="plate-pairing-step" class="plate-pairing-step muted small hidden"></p>
-          <div class="plate-pairing-actions">
-            <button type="button" id="plate-pairing-random-btn" class="btn-secondary">Random pairs</button>
-            <button type="button" id="plate-pairing-manual-btn" class="btn-secondary">Manual pairing</button>
-            <button type="button" id="plate-pairing-finished-btn" class="btn-accept hidden">Finished</button>
-          </div>
           <p id="plate-pairing-selected" class="muted small hidden"></p>
           <div id="plate-pairing-bye" class="muted small hidden"></div>
           <div id="plate-pairing-pairs" class="plate-pairing-pairs"></div>
@@ -220,6 +232,13 @@
             </thead>
             <tbody id="scheduleBody"></tbody>
           </table>
+        </div>
+        <div id="first-round-ref-section" class="panel first-round-ref-section hidden">
+          <div class="queue-heading">
+            <h3>First round referees</h3>
+            <span id="first-round-ref-hint" class="muted"></span>
+          </div>
+          <div id="first-round-ref-list" class="first-round-ref-list"></div>
         </div>
         <div class="draw-games-preview">
           <div class="queue-heading">
@@ -444,6 +463,6 @@
     </section>
 
   </main>
-  <script src="script.js?v=20260809f"></script>
+  <script src="script.js?v=20260809h"></script>
 </body>
 </html>
