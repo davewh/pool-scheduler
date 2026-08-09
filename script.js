@@ -36,6 +36,7 @@ const totalRoundsEl        = document.getElementById("totalRounds");
 const totalSlotsEl         = document.getElementById("totalSlots");
 const estimatedTimeEl      = document.getElementById("estimatedTime");
 const scheduleDescriptionEl= document.getElementById("scheduleDescription");
+const scheduleTeamOrderEl  = document.getElementById("scheduleTeamOrder");
 const scheduleBody         = document.getElementById("scheduleBody");
 const firstRoundRefSection = document.getElementById("first-round-ref-section");
 const firstRoundRefHint = document.getElementById("first-round-ref-hint");
@@ -43,6 +44,7 @@ const firstRoundRefList = document.getElementById("first-round-ref-list");
 const drawSeedLabel        = document.getElementById("drawSeedLabel");
 const drawActions          = document.getElementById("drawActions");
 const redrawBtn            = document.getElementById("redrawBtn");
+const initialSortBtn       = document.getElementById("initialSortBtn");
 const acceptBtn            = document.getElementById("acceptBtn");
 const lockedBadge          = document.getElementById("lockedBadge");
 const tableCardsSection    = document.getElementById("tableCardsSection");
@@ -202,14 +204,17 @@ function serializeState() {
   return {
     version: 1,
     isLocked: true,
+    editingFrozen,
     lastParams: lastParams ? {
       teamCount:  lastParams.teamCount,
       tableCount: lastParams.tableCount,
       minMinutes: lastParams.minMinutes,
       maxMinutes: lastParams.maxMinutes,
       teams:    lastParams.teams,
+      initialTeams: lastParams.initialTeams || lastParams.teams,
       drawMode: lastParams.drawMode,
       drawData: lastParams.drawData,
+      drawOrderMode: lastParams.drawOrderMode || "initial",
       refsEnabled: Boolean(lastParams.refsEnabled),
       refMode: lastParams.refMode || "none",
       loserRefMode: lastParams.loserRefMode || "none",
@@ -243,8 +248,11 @@ function applySerializedState(state) {
   if (!state || !state.isLocked || !state.live || !state.lastParams) return;
   const sl = state.live;
   isLocked = true;
+  editingFrozen = Boolean(state.editingFrozen);
   lastParams = {
     ...state.lastParams,
+    initialTeams: state.lastParams.initialTeams || state.lastParams.teams || [],
+    drawOrderMode: state.lastParams.drawOrderMode || "initial",
     refsEnabled: Boolean(state.lastParams.refsEnabled),
     refMode: state.lastParams.refMode || "none",
     loserRefMode: state.lastParams.loserRefMode || "none",
@@ -288,6 +296,7 @@ function applySerializedState(state) {
   renderLiveBoard();
   renderSettingsTab();
   updateSessionDisplay();
+  syncEditingControls();
 }
 
 function updateSessionDisplay() {
@@ -399,13 +408,15 @@ function renderSettingsTab() {
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let isLocked  = false;
+let editingFrozen = false;
 let lastSlots = [];
 let lastParams = null;
 let pendingDrawRequest = null;
 let pendingWinnerConfirm = null;
 let platePairingMode = "random";
 let platePairingSelection = null;
-let platePairingPairsData = [];
+let platePairingPairsData = null;
+let teamsSortMode = "position"; // "position" | "number"
 let platePairingAvailableTeams = [];
 
 function getActiveUndoResult() {
@@ -441,13 +452,50 @@ function setStep(n) {
 
 function updateDrawControlVisibility() {
   if (!drawActions || !drawModeSubActions || !platePairingSection) return;
-  drawActions.classList.toggle("hidden", !lastParams || !lastParams.drawMode || isLocked);
+  drawActions.classList.toggle("hidden", !lastParams || !lastParams.drawMode || editingFrozen);
   const isPlateDraw = lastParams?.drawMode === "plate";
-  drawModeSubActions.classList.toggle("hidden", !isPlateDraw || isLocked);
-  platePairingSection.classList.toggle("hidden", !isPlateDraw || isLocked || platePairingMode === "manual");
-  if (!lastParams || isLocked) return;
+  drawModeSubActions.classList.toggle("hidden", !isPlateDraw || editingFrozen);
+  platePairingSection.classList.toggle("hidden", !isPlateDraw || editingFrozen);
+  if (!lastParams || editingFrozen) return;
   redrawBtn?.classList.remove("hidden");
   acceptBtn?.classList.remove("hidden");
+}
+
+function syncEditingControls() {
+  const frozen = editingFrozen;
+  form.querySelectorAll("input, button, select").forEach((el) => { el.disabled = frozen; });
+  [
+    backBtn,
+    drawFullBtn,
+    drawSplitBtn,
+    drawPlateBtn,
+    drawModeFullBtn,
+    drawModeSplitBtn,
+    drawModePlateBtn,
+    drawModeRandomBtn,
+    drawModeManualBtn,
+    platePairingRandomBtn,
+    platePairingManualBtn,
+    platePairingFinishedBtn,
+    redrawBtn,
+    initialSortBtn,
+    acceptBtn,
+  ].forEach((btn) => {
+    if (btn) btn.disabled = frozen;
+  });
+  if (platePairingAvailable) {
+    platePairingAvailable.querySelectorAll("button, select, input").forEach((el) => { el.disabled = frozen; });
+  }
+  if (firstRoundRefList) {
+    firstRoundRefList.querySelectorAll("button, select, input").forEach((el) => { el.disabled = frozen; });
+  }
+
+  // When frozen, team name inputs and the Save Names button must stay enabled
+  // so the admin can still rename teams after games have started.
+  if (frozen) {
+    document.querySelectorAll(".team-name-input").forEach((el) => { el.disabled = false; });
+    if (generateDrawBtn) generateDrawBtn.disabled = false;
+  }
 }
 
 function setDrawModeButtons(mode) {
@@ -465,24 +513,229 @@ function setDrawModeButtons(mode) {
   }
 }
 
-function buildPlatePairings(teams) {
-  const shuffled = shuffle([...teams]);
-  const pairs = [];
-  const remaining = [...shuffled];
-  while (remaining.length >= 2) {
-    const [first, second] = remaining.splice(0, 2);
-    pairs.push([first, second]);
+function nextPowerOfTwo(value) {
+  let size = 2;
+  while (size < value) {
+    size *= 2;
   }
+  return size;
+}
+
+function sameMatchPair(match, teamA, teamB) {
+  return (match.teamA === teamA && match.teamB === teamB)
+    || (match.teamA === teamB && match.teamB === teamA);
+}
+
+function buildInitialTableAssignments(teams, tableCount) {
+  const assignments = [];
+  for (let table = 1; table <= tableCount; table++) {
+    const aIndex = (table - 1) * 2;
+    const bIndex = aIndex + 1;
+    if (!teams[aIndex] || !teams[bIndex]) break;
+    assignments.push({
+      table,
+      teamA: teams[aIndex],
+      teamB: teams[bIndex],
+    });
+  }
+  return assignments;
+}
+
+function orderMatchesWithInitialPairs(matches, teams, tableCount) {
+  if (!Array.isArray(matches) || matches.length === 0) return matches;
+  const desiredPairs = buildInitialTableAssignments(teams, tableCount);
+  if (desiredPairs.length === 0) return matches;
+
+  const remaining = [...matches];
+  const orderedFront = [];
+  desiredPairs.forEach((pair) => {
+    const idx = remaining.findIndex((m) => sameMatchPair(m, pair.teamA, pair.teamB));
+    if (idx >= 0) {
+      orderedFront.push(remaining[idx]);
+      remaining.splice(idx, 1);
+    }
+  });
+
+  return [...orderedFront, ...remaining];
+}
+
+function buildPlatePairings(teams) {
+  const orderedTeams = [...teams];
+  const bracketSize = nextPowerOfTwo(Math.max(2, orderedTeams.length));
+  const paddedTeams = orderedTeams.map((team, index) => ({
+    name: team,
+    seed: index + 1,
+  }));
+  while (paddedTeams.length < bracketSize) {
+    paddedTeams.push({
+      name: "BYE",
+      seed: null,
+    });
+  }
+
+  const matches = [];
+  for (let i = 0; i < paddedTeams.length; i += 2) {
+    const a = paddedTeams[i];
+    const b = paddedTeams[i + 1];
+    matches.push({
+      id: (i / 2) + 1,
+      label: `Q${(i / 2) + 1}`,
+      teamA: a.name,
+      teamB: b.name,
+      seedA: a.seed,
+      seedB: b.seed,
+    });
+  }
+
   return {
-    pairs,
-    bye: remaining[0] || null,
+    matches,
+    bracketSize,
+    byeCount: bracketSize - orderedTeams.length,
   };
+}
+
+function formatSeededTeam(team, seed) {
+  if (team === "BYE") return "BYE";
+  if (!seed) return team;
+  return `#${seed} ${team}`;
+}
+
+function knockoutRoundLabel(teamCount) {
+  if (teamCount === 2) {
+    return {
+      title: "2 teams",
+      subtitle: "Final",
+    };
+  }
+
+  return {
+    title: `${teamCount} teams`,
+    subtitle: `${Math.max(1, Math.floor(teamCount / 2))} matches`,
+  };
+}
+
+function knockoutAdvanceLabel(teamA, teamB, label, outcome, seedA = null, seedB = null) {
+  if (teamA === "BYE" && teamB === "BYE") return "BYE";
+  if (outcome === "winner") {
+    if (teamA === "BYE") return formatSeededTeam(teamB, seedB);
+    if (teamB === "BYE") return formatSeededTeam(teamA, seedA);
+    return `Winner ${label}`;
+  }
+
+  if (teamA === "BYE" || teamB === "BYE") {
+    return "BYE";
+  }
+  return `Loser ${label}`;
+}
+
+function buildKnockoutBracket(entries, prefix) {
+  const rounds = [];
+  let currentEntries = [...entries];
+  let roundNumber = 1;
+
+  while (currentEntries.length >= 2) {
+    const matches = [];
+    const nextEntries = [];
+
+    for (let i = 0; i < currentEntries.length; i += 2) {
+      const teamA = currentEntries[i] || "BYE";
+      const teamB = currentEntries[i + 1] || "BYE";
+      const matchLabel = `${prefix}${roundNumber}.${(i / 2) + 1}`;
+      matches.push({ label: matchLabel, teamA, teamB });
+      nextEntries.push(knockoutAdvanceLabel(teamA, teamB, matchLabel, "winner"));
+    }
+
+    rounds.push({
+      roundLabel: knockoutRoundLabel(currentEntries.length),
+      matches,
+    });
+    currentEntries = nextEntries;
+    roundNumber += 1;
+  }
+
+  return rounds;
+}
+
+function renderKnockoutBracket(title, entrants, prefix) {
+  const rounds = buildKnockoutBracket(entrants, prefix);
+  return `
+    <section class="plate-bracket">
+      <div class="plate-bracket-header">
+        <h4>${title}</h4>
+        <span class="muted small">${entrants.filter((entry) => entry !== "BYE").length} teams</span>
+      </div>
+      <div class="plate-bracket-rounds">
+        ${rounds.map((round) => `
+          <div class="plate-bracket-round">
+            <div class="plate-bracket-round-title">${round.roundLabel.title}</div>
+            <div class="plate-bracket-round-subtitle">${round.roundLabel.subtitle}</div>
+            <div class="plate-bracket-match-list">
+              ${round.matches.map((match) => `
+                <div class="plate-bracket-match">
+                  <span>${match.teamA}</span>
+                  <span>${match.teamB}</span>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderPlateKnockoutPreview(pairing) {
+  const mainEntrants = pairing.matches.map((match) => knockoutAdvanceLabel(
+    match.teamA,
+    match.teamB,
+    match.label,
+    "winner",
+    match.seedA,
+    match.seedB
+  ));
+  const plateEntrants = pairing.matches.map((match) => knockoutAdvanceLabel(
+    match.teamA,
+    match.teamB,
+    match.label,
+    "loser",
+    match.seedA,
+    match.seedB
+  ));
+
+  return `
+    <div class="plate-knockout-layout">
+      <section class="plate-bracket plate-qualifier-bracket">
+        <div class="plate-bracket-header">
+          <h4>Qualifier round</h4>
+          <span class="muted small">${pairing.matches.length} matches${pairing.byeCount > 0 ? ` · ${pairing.byeCount} BYE${pairing.byeCount === 1 ? "" : "s"}` : ""}</span>
+        </div>
+        <div class="plate-bracket-rounds">
+          <div class="plate-bracket-round">
+            <div class="plate-bracket-round-title">${knockoutRoundLabel(pairing.bracketSize).title}</div>
+            <div class="plate-bracket-round-subtitle">${knockoutRoundLabel(pairing.bracketSize).subtitle}</div>
+            <div class="plate-bracket-match-list">
+              ${pairing.matches.map((match) => `
+                <div class="plate-bracket-match">
+                  <span>${formatSeededTeam(match.teamA, match.seedA)}</span>
+                  <span>${formatSeededTeam(match.teamB, match.seedB)}</span>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        </div>
+      </section>
+      <div class="plate-bracket-grid">
+        ${renderKnockoutBracket("Main ladder (slot order locked)", mainEntrants, "M")}
+        ${renderKnockoutBracket("Plate ladder (slot order locked)", plateEntrants, "P")}
+      </div>
+    </div>
+  `;
 }
 
 function resetPlatePairingState() {
   platePairingMode = "random";
   platePairingSelection = null;
-  platePairingPairsData = [];
+  platePairingPairsData = null;
   platePairingAvailableTeams = [];
 }
 
@@ -512,22 +765,30 @@ function renderPlatePairing() {
   platePairingStep.classList.add("hidden");
   platePairingSelected.classList.add("hidden");
   platePairingFinishedBtn?.classList.add("hidden");
-  drawActions.classList.remove("hidden");
-  redrawBtn?.classList.remove("hidden");
-  acceptBtn.classList.remove("hidden");
-  const pairing = buildPlatePairings(lastParams.teams);
-  platePairingPairsData = pairing.pairs;
+  const pairing = platePairingPairsData || buildPlatePairings(lastParams.teams);
+  platePairingPairsData = pairing;
   platePairingAvailableTeams = [];
   platePairingSelection = null;
-  platePairingBye.classList.toggle("hidden", !pairing.bye);
-  platePairingBye.textContent = pairing.bye ? `Unpaired team: ${pairing.bye}` : "";
-  platePairingPairs.classList.toggle("hidden", pairing.pairs.length === 0);
-  platePairingPairs.innerHTML = pairing.pairs.length
-    ? pairing.pairs.map(([a, b]) => `
-        <div class="plate-pairing-pair"><strong>${a} vs ${b}</strong><span class="muted small">Pair</span></div>
-      `).join("")
+  platePairingHelp.textContent = platePairingMode === "manual"
+    ? "Manual is selected. Teams keep their current order for the qualifier round. Winners move into Main and losers move into Plate."
+    : "Random is selected for this draw mode. Use Re-draw to reshuffle the qualifier round. Winners move into Main and losers move into Plate.";
+  platePairingBye.classList.toggle("hidden", pairing.byeCount === 0);
+  platePairingBye.textContent = pairing.byeCount > 0
+    ? `${pairing.byeCount} BYE${pairing.byeCount === 1 ? "" : "s"} added so the knockout draw reaches ${pairing.bracketSize} teams.`
+    : "";
+  platePairingPairs.classList.toggle("hidden", pairing.matches.length === 0);
+  platePairingPairs.classList.add("plate-pairing-pairs-bracket");
+  platePairingPairs.innerHTML = pairing.matches.length > 0
+    ? renderPlateKnockoutPreview(pairing)
     : "";
   platePairingAvailable.innerHTML = "";
+  if (editingFrozen) {
+    drawActions.classList.add("hidden");
+  } else {
+    drawActions.classList.remove("hidden");
+    redrawBtn?.classList.remove("hidden");
+    acceptBtn.classList.remove("hidden");
+  }
   updateDrawControlVisibility();
 }
 
@@ -536,12 +797,12 @@ function setPlatePairingMode(mode) {
   if (mode === "manual") {
     platePairingAvailableTeams = [...lastParams.teams];
     platePairingSelection = null;
-    platePairingPairsData = [];
+    platePairingPairsData = null;
     platePairingPairs.classList.add("hidden");
     platePairingPairs.innerHTML = "";
   } else {
     platePairingSelection = null;
-    platePairingPairsData = [];
+    platePairingPairsData = null;
   }
   renderPlatePairing();
 }
@@ -764,7 +1025,7 @@ function shouldOfferSplitDecision(params) {
 }
 
 function showSplitDecision(params, teams) {
-  pendingDrawRequest = { params, teams };
+  pendingDrawRequest = { params, teams, initialTeams: [...teams] };
   splitDecisionText.textContent = `${params.teamCount} teams on ${params.tableCount} tables is a large draw. Do you want a full round robin, or split into 2 random pools for a faster event?`;
   splitDecision.classList.remove("hidden");
 }
@@ -839,14 +1100,14 @@ function showTeamNamesStep(teamCount, tableCount, existingTeams = []) {
    teamNameGrid.appendChild(label);
   }
 
-  namesDescription.textContent =
-   `${teamCount} teams · edit the names below, then generate the draw.`;
   hideSplitDecision();
 
   sectionSettings.classList.add("hidden");
   sectionNames.classList.remove("hidden");
   results.classList.add("hidden");
   setStep(2);
+  updateTeamNamesStepMode();
+  syncEditingControls();
 }
 
 // ─── Step 2 → Step 3: generate the draw ──────────────────────────────────────
@@ -858,9 +1119,136 @@ function readTeamNames() {
   });
 }
 
+function updateTeamNamesStepMode() {
+  const teamCount = teamNameGrid?.querySelectorAll(".team-name-input").length || lastParams?.teamCount || 0;
+  if (editingFrozen) {
+    if (generateDrawBtn) generateDrawBtn.textContent = "Save Names";
+    if (namesDescription) {
+      namesDescription.textContent = `${teamCount} teams · edit the names below, then save the updated names.`;
+    }
+    if (backBtn) backBtn.classList.add("hidden");
+    return;
+  }
+
+  if (backBtn) backBtn.classList.remove("hidden");
+
+  if (generateDrawBtn) generateDrawBtn.textContent = "Generate draw →";
+  if (namesDescription) {
+    namesDescription.textContent = `${teamCount} teams · edit the names below, then generate the draw.`;
+  }
+}
+
+function renameTeamValue(value, renameMap) {
+  if (!value || !renameMap.has(value)) return value;
+  return renameMap.get(value);
+}
+
+function renameMatchTeams(match, renameMap) {
+  if (!match) return match;
+  if (match.teamA) match.teamA = renameTeamValue(match.teamA, renameMap);
+  if (match.teamB) match.teamB = renameTeamValue(match.teamB, renameMap);
+  if (match.winner) match.winner = renameTeamValue(match.winner, renameMap);
+  if (match.winnerTeam) match.winnerTeam = renameTeamValue(match.winnerTeam, renameMap);
+  if (match.loser) match.loser = renameTeamValue(match.loser, renameMap);
+  if (match.loserTeam) match.loserTeam = renameTeamValue(match.loserTeam, renameMap);
+  if (match.refTeam) match.refTeam = renameTeamValue(match.refTeam, renameMap);
+  return match;
+}
+
+function renameObjectKeys(source, renameMap) {
+  return Object.fromEntries(Object.entries(source || {}).map(([key, value]) => [renameTeamValue(key, renameMap), value]));
+}
+
+function renameLiveTeams(oldTeams, newTeams) {
+  if (!lastParams || oldTeams.length !== newTeams.length) return false;
+
+  const renameMap = new Map(oldTeams.map((oldTeam, index) => [oldTeam, newTeams[index]]));
+
+  lastParams.teams = [...newTeams];
+  lastParams.initialTeams = [...newTeams];
+  if (lastParams.drawData) {
+    lastParams.drawData.matches.forEach((match) => renameMatchTeams(match, renameMap));
+    if (Array.isArray(lastParams.drawData.slots)) {
+      lastParams.drawData.slots.forEach((slot) => {
+        (slot.assignments || []).forEach((match) => renameMatchTeams(match, renameMap));
+      });
+    }
+    if (Array.isArray(lastParams.drawData.groups)) {
+      lastParams.drawData.groups.forEach((group) => {
+        group.teams = group.teams.map((team) => renameTeamValue(team, renameMap));
+      });
+    }
+  }
+
+  if (Array.isArray(lastSlots)) {
+    lastSlots.forEach((slot) => {
+      (slot.assignments || []).forEach((match) => renameMatchTeams(match, renameMap));
+    });
+  }
+
+  lastParams.firstRoundRefAssignments = Object.fromEntries(
+    Object.entries(lastParams.firstRoundRefAssignments || {}).map(([tableNum, team]) => [tableNum, renameTeamValue(team, renameMap)])
+  );
+
+  if (live) {
+    live.allMatches.forEach((match) => renameMatchTeams(match, renameMap));
+    live.queue.forEach((match) => renameMatchTeams(match, renameMap));
+    live.completed.forEach((match) => renameMatchTeams(match, renameMap));
+    live.tables.forEach((table) => {
+      if (table.currentMatch) renameMatchTeams(table.currentMatch, renameMap);
+      if (table.pendingRefTeam) table.pendingRefTeam = renameTeamValue(table.pendingRefTeam, renameMap);
+      if (table.firstRoundRefTeam) table.firstRoundRefTeam = renameTeamValue(table.firstRoundRefTeam, renameMap);
+    });
+    live.activePairs = new Set(Array.from(live.activePairs).map((team) => renameTeamValue(team, renameMap)));
+    live.playCount = renameObjectKeys(live.playCount, renameMap);
+    live.points = renameObjectKeys(live.points, renameMap);
+    live.teamTotalSeconds = renameObjectKeys(live.teamTotalSeconds, renameMap);
+    live.teamLoggedMatches = renameObjectKeys(live.teamLoggedMatches, renameMap);
+    live.lastFinishedAtMs = renameObjectKeys(live.lastFinishedAtMs, renameMap);
+    live.teamNumbers = Object.fromEntries(
+      Object.entries(live.teamNumbers).map(([team, number]) => [renameTeamValue(team, renameMap), number])
+    );
+    if (Array.isArray(live.groups)) {
+      live.groups.forEach((group) => {
+        group.teams = group.teams.map((team) => renameTeamValue(team, renameMap));
+      });
+    }
+    if (live.lastUndoResult) {
+      renameMatchTeams(live.lastUndoResult.match, renameMap);
+      live.lastUndoResult.winnerTeam = renameTeamValue(live.lastUndoResult.winnerTeam, renameMap);
+      live.lastUndoResult.loserTeam = renameTeamValue(live.lastUndoResult.loserTeam, renameMap);
+      live.lastUndoResult.previousLastFinishedAtMs = renameObjectKeys(live.lastUndoResult.previousLastFinishedAtMs, renameMap);
+    }
+  }
+
+  if (pendingWinnerConfirm) {
+    pendingWinnerConfirm.winnerTeam = renameTeamValue(pendingWinnerConfirm.winnerTeam, renameMap);
+  }
+
+  return true;
+}
+
+function saveTeamNames() {
+  if (!lastParams) return;
+  const newTeams = readTeamNames();
+  const oldTeams = [...(lastParams.teams || [])];
+  if (oldTeams.length !== newTeams.length) return;
+
+  if (editingFrozen && live) {
+    renameLiveTeams(oldTeams, newTeams);
+    renderLiveBoard();
+    sendState();
+    goToStep(4);
+    activateLiveTab("board");
+    return;
+  }
+
+  runDraw(lastParams, newTeams, lastParams.drawMode || "full", { orderMode: lastParams.drawOrderMode || "initial" });
+}
+
 function buildDrawData(params, teams, drawMode) {
   const { tableCount, minMinutes, maxMinutes } = params;
-  const arrangedTeams = platePairingMode === "manual" ? [...teams] : shuffle(teams);
+  const arrangedTeams = [...teams];
   const shouldSplit = drawMode === "split" && tableCount >= 2 && teams.length >= 4;
   const allTableNumbers = Array.from({ length: tableCount }, (_, i) => i + 1);
   const isPlate = drawMode === "plate";
@@ -869,12 +1257,13 @@ function buildDrawData(params, teams, drawMode) {
     const rounds = buildRounds(arrangedTeams);
     const slots = combineSlots([buildSlots(rounds, allTableNumbers, "all", "Round")]);
     const matches = slots.flatMap((slot) => slot.assignments);
+    const orderedMatches = orderMatchesWithInitialPairs(matches, arrangedTeams, tableCount);
     return {
       splitMode: false,
       drawMode,
       slots,
       roundsCount: rounds.length,
-      matches,
+      matches: orderedMatches,
       groupSummary: isPlate ? "Plate knockout draw" : "Single full round robin",
       groups: [
         {
@@ -884,7 +1273,7 @@ function buildDrawData(params, teams, drawMode) {
           tables: allTableNumbers,
         },
       ],
-      totalMatches: matches.length,
+      totalMatches: orderedMatches.length,
       minMinutes,
       maxMinutes,
     };
@@ -909,19 +1298,20 @@ function buildDrawData(params, teams, drawMode) {
     })),
   }));
   const matches = slots.flatMap((slot) => slot.assignments);
+  const orderedMatches = orderMatchesWithInitialPairs(matches, arrangedTeams, tableCount);
 
   return {
     splitMode: true,
     drawMode,
     slots,
     roundsCount: Math.max(poolARounds.length, poolBRounds.length),
-    matches,
+    matches: orderedMatches,
     groupSummary: `Split mode: Pool 1 (${poolATeams.length} teams) and Pool 2 (${poolBTeams.length} teams) share all ${tableCount} tables`,
     groups: [
       { id: "pool-a", label: "Pool 1", teams: poolATeams, tables: allTableNumbers, sharedTables: true },
       { id: "pool-b", label: "Pool 2", teams: poolBTeams, tables: allTableNumbers, sharedTables: true },
     ],
-    totalMatches: matches.length,
+    totalMatches: orderedMatches.length,
     minMinutes,
     maxMinutes,
   };
@@ -1003,16 +1393,50 @@ function renderFirstRoundRefPanel(params, firstWindowAssignments, teams) {
   return randomAssignments;
 }
 
-function runDraw(params, teams, drawMode) {
+function renderScheduleTeamOrder(teams) {
+  if (!scheduleTeamOrderEl) return;
+  scheduleTeamOrderEl.innerHTML = teams.map((team, index) => `
+    <div class="schedule-team-chip">#${index + 1} ${team}</div>
+  `).join("");
+}
+
+function runDraw(params, teams, drawMode, options = {}) {
   const { tableCount, minMinutes, maxMinutes } = params;
-  const drawData = buildDrawData(params, teams, drawMode);
+  const initialTeams = Array.isArray(params.initialTeams) && params.initialTeams.length
+    ? [...params.initialTeams]
+    : [...teams];
+  const baseTeams = Array.isArray(options.teamOrder) && options.teamOrder.length
+    ? [...options.teamOrder]
+    : [...teams];
+  const drawTeams = options.orderMode === "random"
+    ? shuffle(baseTeams)
+    : [...baseTeams];
+
+  const drawData = buildDrawData(params, drawTeams, drawMode);
+  if (drawMode === "plate" && !platePairingPairsData) {
+    platePairingPairsData = buildPlatePairings(drawTeams);
+  }
   const { slots } = drawData;
-  const teamNumbers = Object.fromEntries(teams.map((team, index) => [team, index + 1]));
+  const teamNumbers = Object.fromEntries(drawTeams.map((team, index) => [team, index + 1]));
   const previewSlots = slots.slice(0, 1);
-  const firstWindowAssignments = (previewSlots[0]?.assignments || []).slice(0, tableCount);
+  const firstWindowAssignments = drawMode === "plate" && platePairingPairsData?.matches
+    ? platePairingPairsData.matches.slice(0, tableCount).map((match, index) => ({
+        table: index + 1,
+        teamA: match.teamA,
+        teamB: match.teamB,
+      }))
+    : buildInitialTableAssignments(drawTeams, tableCount);
 
   lastSlots = slots;
-  lastParams = { ...params, teams, drawMode, drawData, firstRoundRefAssignments: {} };
+  lastParams = {
+    ...params,
+    teams: drawTeams,
+    initialTeams,
+    drawMode,
+    drawData,
+    drawOrderMode: options.orderMode === "random" ? "random" : "initial",
+    firstRoundRefAssignments: {},
+  };
   hideSplitDecision();
   setDrawModeButtons(drawMode);
 
@@ -1028,7 +1452,8 @@ function runDraw(params, teams, drawMode) {
   estimatedTimeEl.textContent =
     `${fmt(slots.length * minMinutes)} – ${fmt(slots.length * maxMinutes)} (avg ${fmt(slots.length * avg)})`;
   scheduleDescriptionEl.textContent =
-    `${teams.length} teams · ${totalMatches} matches · ${tableCount} tables · ${slots.length} scheduling windows · ${drawData.groupSummary}`;
+    `${drawTeams.length} teams · ${totalMatches} matches · ${tableCount} tables · ${slots.length} scheduling windows · ${drawData.groupSummary}`;
+  renderScheduleTeamOrder(drawTeams);
   redrawBtn.textContent = "↺ Re-draw";
   renderPoolSummary(
     poolSummarySection,
@@ -1046,8 +1471,8 @@ function runDraw(params, teams, drawMode) {
 
   // Schedule table
   scheduleBody.innerHTML = "";
-  const { eligibleTeams: firstRoundRefEligibleTeams } = buildFirstRoundRefContext(teams, firstWindowAssignments);
-  const firstRoundRefAssignments = renderFirstRoundRefPanel(params, firstWindowAssignments, teams);
+  const { eligibleTeams: firstRoundRefEligibleTeams } = buildFirstRoundRefContext(drawTeams, firstWindowAssignments);
+  const firstRoundRefAssignments = renderFirstRoundRefPanel(params, firstWindowAssignments, drawTeams);
   lastParams.firstRoundRefAssignments = { ...firstRoundRefAssignments };
   lastParams.firstRoundRefRequiredTables = params.refsEnabled && params.refMode === "manual" && firstRoundRefEligibleTeams.length > 0
     ? firstWindowAssignments.map((match) => match.table)
@@ -1085,24 +1510,24 @@ function runDraw(params, teams, drawMode) {
   results.classList.remove("hidden");
   setStep(3);
   setDrawModeButtons(drawMode);
+  syncEditingControls();
 }
 
 // ─── Lock / Accept ────────────────────────────────────────────────────────────
 
-function lockDraw() {
+function acceptDraw() {
   isLocked = true;
-  drawActions.classList.add("hidden");
-  lockedBadge.classList.remove("hidden");
-
-  form.querySelectorAll("input, button").forEach((el) => { el.disabled = true; });
-  document.querySelectorAll(".team-name-input").forEach((el) => { el.disabled = true; });
-  generateDrawBtn.disabled = true;
-  backBtn.disabled = true;
-  drawFullBtn.disabled = true;
-  drawSplitBtn.disabled = true;
-
-  // Transition to live board
+  lockedBadge.classList.add("hidden");
   initLiveBoard(lastSlots, lastParams.tableCount, lastParams.teams, lastParams.drawData);
+}
+
+function freezeEditing() {
+  if (editingFrozen) return;
+  editingFrozen = true;
+  lockedBadge.classList.remove("hidden");
+  drawActions.classList.add("hidden");
+  updateTeamNamesStepMode();
+  syncEditingControls();
 }
 
 // ─── Event wiring ─────────────────────────────────────────────────────────────
@@ -1128,7 +1553,10 @@ backBtn.addEventListener("click", () => {
 });
 
 generateDrawBtn.addEventListener("click", () => {
-  if (isLocked) return;
+  if (editingFrozen) {
+    saveTeamNames();
+    return;
+  }
   const params = getSettingsParams();
   const err = validateSettings(params);
   formError.textContent = err;
@@ -1139,69 +1567,77 @@ generateDrawBtn.addEventListener("click", () => {
     return;
   }
 
-  runDraw(params, teams, "full");
+  runDraw(params, teams, "full", { orderMode: "initial" });
 });
 
 drawFullBtn?.addEventListener("click", () => {
-  if (!pendingDrawRequest) return;
-  runDraw(pendingDrawRequest.params, pendingDrawRequest.teams, "full");
+  if (!pendingDrawRequest || editingFrozen) return;
+  runDraw(pendingDrawRequest.params, pendingDrawRequest.initialTeams || pendingDrawRequest.teams, "full", { orderMode: "initial" });
 });
 
 drawSplitBtn?.addEventListener("click", () => {
-  if (!pendingDrawRequest) return;
-  runDraw(pendingDrawRequest.params, pendingDrawRequest.teams, "split");
+  if (!pendingDrawRequest || editingFrozen) return;
+  runDraw(pendingDrawRequest.params, pendingDrawRequest.initialTeams || pendingDrawRequest.teams, "split", { orderMode: "initial" });
 });
 
 drawPlateBtn?.addEventListener("click", () => {
-  if (!pendingDrawRequest) return;
-  runDraw(pendingDrawRequest.params, pendingDrawRequest.teams, "plate");
+  if (!pendingDrawRequest || editingFrozen) return;
+  runDraw(pendingDrawRequest.params, pendingDrawRequest.initialTeams || pendingDrawRequest.teams, "plate", { orderMode: "initial" });
 });
 
 drawModeFullBtn?.addEventListener("click", () => {
-  if (!lastParams || isLocked) return;
-  runDraw(lastParams, lastParams.teams, "full");
+  if (!lastParams || editingFrozen) return;
+  runDraw(lastParams, lastParams.initialTeams || lastParams.teams, "full", { teamOrder: lastParams.teams });
 });
 
 drawModeSplitBtn?.addEventListener("click", () => {
-  if (!lastParams || isLocked) return;
-  runDraw(lastParams, lastParams.teams, "split");
+  if (!lastParams || editingFrozen) return;
+  runDraw(lastParams, lastParams.initialTeams || lastParams.teams, "split", { teamOrder: lastParams.teams });
 });
 
 drawModePlateBtn?.addEventListener("click", () => {
-  if (!lastParams || isLocked) return;
-  runDraw(lastParams, lastParams.teams, "plate");
+  if (!lastParams || editingFrozen) return;
+  runDraw(lastParams, lastParams.initialTeams || lastParams.teams, "plate", { teamOrder: lastParams.teams });
 });
 
 drawModeRandomBtn?.addEventListener("click", () => {
-  if (!lastParams || isLocked) return;
+  if (!lastParams || editingFrozen) return;
   setPlatePairingMode("random");
 });
 
 drawModeManualBtn?.addEventListener("click", () => {
-  if (!lastParams || isLocked) return;
+  if (!lastParams || editingFrozen) return;
   setPlatePairingMode("manual");
 });
 
 platePairingFinishedBtn?.addEventListener("click", () => {
-  if (!lastParams || lastParams.drawMode !== "plate" || isLocked) return;
+  if (!lastParams || lastParams.drawMode !== "plate" || editingFrozen) return;
   setPlatePairingMode("random");
 });
 
 redrawBtn.addEventListener("click", () => {
-  if (isLocked) return;
+  if (editingFrozen) return;
   if (lastParams?.drawMode === "plate") {
     if (platePairingMode === "manual") {
       setPlatePairingMode("random");
-      return;
     }
-    renderPlatePairing();
+    platePairingPairsData = null;
+    runDraw(lastParams, lastParams.initialTeams || lastParams.teams, lastParams.drawMode, { orderMode: "random" });
     return;
   }
-  runDraw(lastParams, lastParams.teams, lastParams.drawMode);
+  runDraw(lastParams, lastParams.initialTeams || lastParams.teams, lastParams.drawMode, { orderMode: "random" });
+});
+
+initialSortBtn?.addEventListener("click", () => {
+  if (editingFrozen || !lastParams) return;
+  if (lastParams.drawMode === "plate") {
+    platePairingPairsData = null;
+  }
+  runDraw(lastParams, lastParams.initialTeams || lastParams.teams, lastParams.drawMode, { orderMode: "initial" });
 });
 
 acceptBtn.addEventListener("click", () => {
-  if (isLocked) return;
+  if (editingFrozen) return;
   if (lastParams?.refsEnabled && lastParams?.refMode === "manual") {
     const requiredTables = lastParams.firstRoundRefRequiredTables || [];
     const selectedRefs = lastParams.firstRoundRefAssignments || {};
@@ -1214,7 +1650,7 @@ acceptBtn.addEventListener("click", () => {
       return;
     }
   }
-  lockDraw();
+  acceptDraw();
 });
 
 [step1Pill, step2Pill, step3Pill, step4Pill].forEach((pill) => {
@@ -1259,7 +1695,7 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
     completed: [],
     total: allMatches.length,
     teamNumbers: Object.fromEntries(teams.map((team, index) => [team, index + 1])),
-    initialTableOrder: shuffle(Array.from({ length: tableCount }, (_, i) => i + 1)),
+    initialTableOrder: Array.from({ length: tableCount }, (_, i) => i + 1),
     groups: drawData.groups,
     refSettings: normalizeRefSettings({
       enabled: Boolean(lastParams?.refsEnabled),
@@ -1282,6 +1718,19 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
 }
 
 function compareEligibleMatches(a, b) {
+  const openingRoundActive = !hasEveryTeamPlayedOnce();
+  if (openingRoundActive) {
+    const aLow = Math.min(live.teamNumbers[a.teamA] || 0, live.teamNumbers[a.teamB] || 0);
+    const bLow = Math.min(live.teamNumbers[b.teamA] || 0, live.teamNumbers[b.teamB] || 0);
+    if (aLow !== bLow) return aLow - bLow;
+
+    const aHigh = Math.max(live.teamNumbers[a.teamA] || 0, live.teamNumbers[a.teamB] || 0);
+    const bHigh = Math.max(live.teamNumbers[b.teamA] || 0, live.teamNumbers[b.teamB] || 0);
+    if (aHigh !== bHigh) return aHigh - bHigh;
+
+    return a.num - b.num;
+  }
+
   const aWaitA = waitingScore(a.teamA);
   const aWaitB = waitingScore(a.teamB);
   const bWaitA = waitingScore(b.teamA);
@@ -1307,6 +1756,11 @@ function compareEligibleMatches(a, b) {
     if (aMinWait !== bMinWait) return bMinWait - aMinWait;
     if (aTotalWait !== bTotalWait) return bTotalWait - aTotalWait;
     return a.num - b.num;
+  }
+
+  function hasEveryTeamPlayedOnce() {
+    if (!live || !live.playCount) return true;
+    return Object.values(live.playCount).every((count) => count > 0);
   }
 
   if (aMinWait !== bMinWait) return bMinWait - aMinWait;
@@ -1483,6 +1937,7 @@ function handleTimerActionClick(btn) {
   normalizeCurrentMatchTimer(match);
 
   if (action === "start" && match.timerState === "ready") {
+    freezeEditing();
     const now = Date.now();
     match.timerState = "running";
     match.runningStartedAtMs = now;
@@ -1824,6 +2279,7 @@ function ensureLiveTicker() {
     renderLiveQueue();
     renderGamesStatusTable();
     renderTeamTimeStats();
+    renderDashboard();
   }, 1000);
 }
 
@@ -2276,32 +2732,170 @@ function renderTeamTimeStats() {
   const summary = document.getElementById("time-stats-summary");
   if (!body || !summary) return;
 
+  // Don't wipe the table while an inline rename input is open
+  if (body.querySelector(".team-name-input-inline")) return;
+
   const rows = Object.keys(live.points).map((team) => {
     const isPlaying = live.activePairs.has(team);
+    const activeTable = isPlaying
+      ? live.tables.find((table) => table.state === "playing" && table.currentMatch && (table.currentMatch.teamA === team || table.currentMatch.teamB === team))
+      : null;
+    const playingSeconds = activeTable && activeTable.currentMatch
+      ? getCurrentMatchElapsedSeconds(activeTable.currentMatch)
+      : 0;
     const waitingSeconds = waitingScore(team);
     const logged = live.teamLoggedMatches[team] || 0;
     const totalSeconds = live.teamTotalSeconds[team] || 0;
     const avg = averageTeamSeconds(team);
     const points = live.points[team] || 0;
-    return { team, isPlaying, waitingSeconds, logged, totalSeconds, avg, points };
+    return { team, isPlaying, playingSeconds, waitingSeconds, logged, totalSeconds, avg, points };
   });
 
-  rows.sort((a, b) => {
+  // Build head-to-head lookup: h2h.get("A|B") = winner name (always keyed alphabetically)
+  const h2h = new Map();
+  live.completed.forEach((m) => {
+    if (!m.winner) return;
+    const key = [m.teamA, m.teamB].sort().join("|");
+    h2h.set(key, m.winner);
+  });
+
+  const standingsSort = (a, b) => {
     if (b.points !== a.points) return b.points - a.points;
-    if ((b.avg || 0) !== (a.avg || 0)) return (b.avg || 0) - (a.avg || 0);
-    return a.team.localeCompare(b.team);
+    const h2hKey = [a.team, b.team].sort().join("|");
+    const h2hWinner = h2h.get(h2hKey);
+    if (h2hWinner === a.team) return -1;
+    if (h2hWinner === b.team) return 1;
+    // Within a truly tied group, order by team number for stable display
+    return (live.teamNumbers[a.team] ?? 999) - (live.teamNumbers[b.team] ?? 999);
+  };
+
+  // Always compute positions from standings order, regardless of display sort
+  const standingsRows = [...rows].sort(standingsSort);
+
+  // Two teams are tied if same points and no decisive h2h result between them
+  const isTiedWith = (a, b) => {
+    if (a.points !== b.points) return false;
+    const key = [a.team, b.team].sort().join("|");
+    return !h2h.has(key); // no h2h result → truly tied
+  };
+
+  // Assign positions with gaps (3rd=, 3rd=, ... 10th)
+  // Track the position each "group" started at
+  const posMap = new Map(); // team → { pos, tied }
+  let groupStartPos = 1;
+  for (let i = 0; i < standingsRows.length; i++) {
+    let assignedPos;
+    if (i === 0) {
+      assignedPos = 1;
+      groupStartPos = 1;
+    } else if (isTiedWith(standingsRows[i], standingsRows[i - 1])) {
+      // Same tied group — use the group's starting position
+      assignedPos = groupStartPos;
+    } else {
+      // New group starts here
+      groupStartPos = i + 1;
+      assignedPos = groupStartPos;
+    }
+    posMap.set(standingsRows[i].team, { pos: assignedPos, tied: false });
+  }
+  // Mark tied positions (any pos shared by more than one team)
+  posMap.forEach((val) => {
+    const anyOther = [...posMap.values()].some((v) => v !== val && v.pos === val.pos);
+    val.tied = anyOther;
   });
 
-  body.innerHTML = rows.map((row) => `
+  function ordinal(n) {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  // Now sort rows for display
+  if (teamsSortMode === "number") {
+    rows.sort((a, b) => (live.teamNumbers[a.team] ?? 999) - (live.teamNumbers[b.team] ?? 999));
+  } else {
+    rows.sort(standingsSort);
+  }
+
+  // Update header active states
+  const posToggle = document.getElementById("teams-position-sort-toggle");
+  const numToggle = document.getElementById("teams-sort-toggle");
+  if (posToggle) posToggle.classList.toggle("teams-sort-active", teamsSortMode === "position");
+  if (numToggle) numToggle.classList.toggle("teams-sort-active", teamsSortMode === "number");
+
+  body.innerHTML = rows.map((row) => {
+    const { pos, tied } = posMap.get(row.team) || { pos: "-", tied: false };
+    const posLabel = pos === "-" ? "-" : `${ordinal(pos)}${tied ? "=" : ""}`;
+    return `
     <tr>
-      <td>${row.team}</td>
-      <td>${row.isPlaying ? '<span class="team-status-playing">Playing</span>' : `<span class="team-status-waiting">Waiting ${fmtClock(row.waitingSeconds)}</span>`}</td>
+      <td>${posLabel}</td>
+      <td class="team-name-cell" data-team="${row.team}">
+        <span class="team-name-text">${row.team}</span>
+        <button class="team-name-edit-btn" title="Rename team" aria-label="Rename ${row.team}">✏️</button>
+      </td>
+      <td>${row.isPlaying ? `<span class="team-status-playing">Playing ${fmtClock(row.playingSeconds)}</span>` : `<span class="team-status-waiting">Waiting ${fmtClock(row.waitingSeconds)}</span>`}</td>
       <td>${row.logged}</td>
       <td>${row.logged === 0 ? "-" : fmtClock(row.totalSeconds)}</td>
       <td>${row.avg === null ? "-" : fmtClock(row.avg)}</td>
       <td>${row.points}</td>
     </tr>
-  `).join("");
+  `}).join("");
+
+  // Wire pencil-icon inline rename UX
+  body.querySelectorAll(".team-name-edit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cell = btn.closest(".team-name-cell");
+      const oldName = cell.dataset.team;
+      const nameSpan = cell.querySelector(".team-name-text");
+      if (cell.querySelector(".team-name-input-inline")) return; // already editing
+
+      nameSpan.classList.add("hidden");
+      btn.classList.add("hidden");
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "team-name-input-inline";
+      input.value = oldName;
+      input.maxLength = 40;
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "team-name-save-btn";
+      saveBtn.title = "Save name";
+      saveBtn.textContent = "✔";
+
+      const commit = () => {
+        const newName = input.value.trim() || oldName;
+        const oldTeams = [...(lastParams?.teams || [])];
+        const newTeams = oldTeams.map((t) => (t === oldName ? newName : t));
+        if (newName !== oldName) {
+          renameLiveTeams(oldTeams, newTeams);
+          sendState();
+        }
+        // Remove inline edit elements before re-rendering so the guard doesn't block
+        input.remove();
+        saveBtn.remove();
+        nameSpan.classList.remove("hidden");
+        btn.classList.remove("hidden");
+        renderLiveBoard();
+      };
+
+      saveBtn.addEventListener("click", commit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          input.remove();
+          saveBtn.remove();
+          nameSpan.classList.remove("hidden");
+          btn.classList.remove("hidden");
+        }
+      });
+
+      cell.appendChild(input);
+      cell.appendChild(saveBtn);
+      input.focus();
+      input.select();
+    });
+  });
 
   if (live.loggedGameCount === 0) {
     summary.textContent = "No game times logged yet";
@@ -2341,18 +2935,15 @@ if (splitMode) {
 
 grid.className = "games-status-grid";
 grid.innerHTML = buildGamesStatusRows(live.allMatches, completedByNum, playingByNum);
+grid.querySelectorAll("[data-open-live-board='1']").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    activateLiveTab("board");
+  });
+});
 }
 
 function buildGamesStatusRows(matches, completedByNum, playingByNum) {
-const chunkSize = 10;
-const rows = [];
-
-for (let start = 0; start < matches.length; start += chunkSize) {
-  const chunk = matches.slice(start, start + chunkSize);
-  const from = start + 1;
-  const to = start + chunk.length;
-
-  const cells = chunk.map((match) => {
+  const cells = matches.map((match) => {
     const completed = completedByNum.get(match.num);
     const playingMeta = playingByNum.get(match.num);
     const isPlayed = Boolean(completed);
@@ -2360,7 +2951,14 @@ for (let start = 0; start < matches.length; start += chunkSize) {
     const statusClass = isPlayed ? "game-chip-played" : isPlaying ? "game-chip-playing" : "game-chip-pending";
     const teamA = live.teamNumbers[match.teamA] || "?";
     const teamB = live.teamNumbers[match.teamB] || "?";
+    const winnerTeam = completed?.winnerTeam || completed?.winner || null;
     const playingElapsed = isPlaying ? Math.max(0, Math.floor(playingMeta.elapsedSeconds || 0)) : 0;
+    const teamAMarkup = isPlayed
+      ? `<span class="game-chip-team ${winnerTeam === match.teamA ? "game-chip-winner" : "game-chip-loser"}">${teamA}(${winnerTeam === match.teamA ? "W" : "L"})</span>`
+      : `<span class="game-chip-team">${teamA}</span>`;
+    const teamBMarkup = isPlayed
+      ? `<span class="game-chip-team ${winnerTeam === match.teamB ? "game-chip-winner" : "game-chip-loser"}">${teamB}(${winnerTeam === match.teamB ? "W" : "L"})</span>`
+      : `<span class="game-chip-team">${teamB}</span>`;
     const duration = isPlayed
       ? `<span class="game-chip-time">T${completed.tableNum || "-"} (${fmtClock(completed.durationSeconds || 0)})</span>`
       : isPlaying
@@ -2368,22 +2966,19 @@ for (let start = 0; start < matches.length; start += chunkSize) {
         : "";
 
     return `
-      <div class="game-chip ${statusClass}">
-        <span class="game-chip-main">${teamA}v${teamB}</span>
+      <div class="game-chip ${statusClass}"${isPlaying ? ' data-open-live-board="1" role="button" tabindex="0"' : ""}>
+        <span class="game-chip-main">${teamAMarkup}<span class="game-chip-vs">v</span>${teamBMarkup}</span>
         ${duration}
       </div>
     `;
   }).join("");
 
-  rows.push(`
-    <div class="games-status-row">
-      <div class="games-status-row-title">Matches ${from}-${to}</div>
-      <div class="games-status-row-grid">${cells}</div>
-    </div>
-  `);
+  return `<div class="games-status-row-grid">${cells}</div>`;
 }
 
-return rows.join("");
+function activateLiveTab(tabName) {
+  const tabButton = document.querySelector(`.live-tab[data-tab="${tabName}"]`);
+  if (tabButton) tabButton.click();
 }
 
 function renderGamesStatusGroup(group, completedByNum, playingByNum) {
@@ -2734,6 +3329,16 @@ async function initPortal() {
   }
 
   initLiveTabs();
+
+  // Teams tab sort toggles
+  document.getElementById("teams-position-sort-toggle")?.addEventListener("click", () => {
+    teamsSortMode = "position";
+    if (live) renderTeamTimeStats();
+  });
+  document.getElementById("teams-sort-toggle")?.addEventListener("click", () => {
+    teamsSortMode = "number";
+    if (live) renderTeamTimeStats();
+  });
 
   await refreshAuthState();
 
