@@ -1,4 +1,4 @@
-// ─── Element refs ────────────────────────────────────────────────────────────
+﻿// ─── Element refs ────────────────────────────────────────────────────────────
 
 const form             = document.getElementById("scheduler-form");
 const formError        = document.getElementById("form-error");
@@ -94,7 +94,7 @@ function initRemoteSync() {
   if (pollTimer) {
     clearInterval(pollTimer);
   }
-  pollTimer = setInterval(fetchRemoteState, 3000);
+  pollTimer = setInterval(fetchRemoteState, 5000);
 }
 
 async function sendState() {
@@ -1543,3 +1543,4 @@ return `
 
 initLiveTabs();
 initRemoteSync();
+

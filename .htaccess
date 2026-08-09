@@ -1,0 +1,24 @@
+# Browser caching for static assets (30 days)
+<FilesMatch "\.(js|css|woff2|woff|ttf|eot|png|jpg|jpeg|gif|svg|ico)$">
+  Header set Cache-Control "public, max-age=2592000"
+  Header set Expires "Thu, 01 Jan 2099 00:00:00 GMT"
+</FilesMatch>
+
+# Don't cache HTML files (always check for updates)
+<FilesMatch "\.(html|php)$">
+  Header set Cache-Control "no-cache, must-revalidate, max-age=0"
+  Header set Pragma "no-cache"
+  Header set Expires "0"
+</FilesMatch>
+
+# Compress responses
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html
+  AddOutputFilterByType DEFLATE text/plain
+  AddOutputFilterByType DEFLATE text/xml
+  AddOutputFilterByType DEFLATE text/css
+  AddOutputFilterByType DEFLATE text/javascript
+  AddOutputFilterByType DEFLATE application/javascript
+  AddOutputFilterByType DEFLATE application/json
+  AddOutputFilterByType DEFLATE application/xml+rss
+</IfModule>
