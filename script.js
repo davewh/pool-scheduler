@@ -42,6 +42,24 @@ const step1Pill = document.getElementById("step1-pill");
 const step2Pill = document.getElementById("step2-pill");
 const step3Pill = document.getElementById("step3-pill");
 const step4Pill = document.getElementById("step4-pill");
+const portalMode = document.body?.dataset?.portalMode || "public";
+const apiBase = document.body?.dataset?.apiBase || "api.php";
+const publicHome = document.body?.dataset?.publicHome || "./";
+const authShell = document.getElementById("auth-shell");
+const appShell = document.getElementById("app-shell");
+const loginCard = document.getElementById("login-card");
+const adminDashboard = document.getElementById("admin-dashboard");
+const dashboardTitle = document.getElementById("dashboard-title");
+const dashboardDescription = document.getElementById("dashboard-description");
+const adminRouteHint = document.getElementById("admin-route-hint");
+const createTournamentForm = document.getElementById("create-tournament-form");
+const tournamentNameInput = document.getElementById("tournament-name");
+const tournamentCodeInput = document.getElementById("tournament-code");
+const adminMessage = document.getElementById("admin-message");
+const dashboardTabs = document.getElementById("admin-dashboard-tabs");
+const toggleTournamentsBtn = document.getElementById("toggle-tournaments-btn");
+const tournamentsPanel = document.getElementById("tournaments-panel");
+const tournamentList = document.getElementById("tournament-list");
 
 // ─── Session & remote sync ────────────────────────────────────────────────────
 
@@ -57,7 +75,7 @@ function getOrCreateSessionId() {
   const p = new URLSearchParams(location.search);
   const existing = p.get("id");
   if (existing && existing.length > 0) return existing;
-  return generateSessionId();
+  return "";
 }
 
 function showSyncHint(message) {
@@ -74,11 +92,15 @@ function hideSyncHint() {
 }
 
 function syncApiUrl(action) {
-  return `api.php?action=${encodeURIComponent(action)}&id=${encodeURIComponent(sessionId)}`;
+  return `${apiUrl(action)}&id=${encodeURIComponent(sessionId)}`;
 }
 
 function initRemoteSync() {
   sessionId = getOrCreateSessionId();
+  if (!sessionId) {
+    updateSessionDisplay();
+    return;
+  }
   const url = new URL(location.href);
   url.searchParams.set("id", sessionId);
   history.replaceState(null, "", url.toString());
@@ -180,6 +202,7 @@ function serializeState() {
       teamNumbers:       live.teamNumbers,
       groups:            live.groups,
       dispatchMode:      live.dispatchMode,
+      lastUndoResult:    live.lastUndoResult || null,
     },
   };
 }
@@ -210,6 +233,7 @@ function applySerializedState(state) {
     initialTableOrder: [],
     groups:            sl.groups,
     dispatchMode:      sl.dispatchMode,
+    lastUndoResult:    sl.lastUndoResult || null,
   };
 
   sectionSettings.classList.add("hidden");
@@ -336,6 +360,17 @@ let isLocked  = false;
 let lastSlots = [];
 let lastParams = null;
 let pendingDrawRequest = null;
+let pendingWinnerConfirm = null;
+
+function getActiveUndoResult() {
+  if (!live || !live.lastUndoResult) return null;
+  const expiresAt = live.lastUndoResult.undoExpiresAtMs || 0;
+  if (expiresAt > Date.now()) {
+    return live.lastUndoResult;
+  }
+  live.lastUndoResult = null;
+  return null;
+}
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
@@ -817,6 +852,7 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
     initialTableOrder: shuffle(Array.from({ length: tableCount }, (_, i) => i + 1)),
     groups: drawData.groups,
     dispatchMode: "waiting",
+    lastUndoResult: null,
   };
 
   results.classList.add("hidden");
@@ -902,14 +938,73 @@ function assignMatch(tableNum, match) {
   live.activePairs.add(match.teamB);
 }
 
+function clearMatchOutcome(match) {
+  const restored = { ...match };
+  delete restored.winner;
+  delete restored.loser;
+  delete restored.durationSeconds;
+  delete restored.tableNum;
+  return restored;
+}
+
+function clearWinnerConfirmation() {
+  pendingWinnerConfirm = null;
+}
+
+function renderLiveAdminActions() {
+  const wrap = document.getElementById("live-admin-actions");
+  if (!wrap) return;
+  wrap.classList.add("hidden");
+}
+
+function handleWinnerButtonClick(btn) {
+  const tableNum = Number(btn.dataset.table);
+  const winnerTeam = btn.dataset.winner;
+  if (!tableNum || !winnerTeam) return;
+
+  const table = live.tables.find((t) => t.num === tableNum);
+  if (!table || table.state !== "playing" || !table.currentMatch) return;
+
+  const confirming = pendingWinnerConfirm
+    && pendingWinnerConfirm.tableNum === tableNum
+    && pendingWinnerConfirm.winnerTeam === winnerTeam;
+
+  if (!confirming) {
+    pendingWinnerConfirm = { tableNum, winnerTeam };
+    renderLiveBoard();
+    return;
+  }
+
+  finishMatch(tableNum, winnerTeam);
+}
+
 function finishMatch(tableNum, winnerTeam) {
   const table = live.tables.find((t) => t.num === tableNum);
   if (table.state !== "playing") return;
 
   const m = table.currentMatch;
   if (winnerTeam !== m.teamA && winnerTeam !== m.teamB) return;
+  clearWinnerConfirmation();
   const loserTeam = winnerTeam === m.teamA ? m.teamB : m.teamA;
   const elapsedSeconds = Math.max(1, Math.round((Date.now() - m.startedAtMs) / 1000));
+  const finishedAt = Date.now();
+
+  live.lastUndoResult = {
+    tableNum: table.num,
+    match: {
+      ...clearMatchOutcome(m),
+      startedAtMs: finishedAt - (elapsedSeconds * 1000),
+    },
+    elapsedSeconds,
+    winnerTeam,
+    loserTeam,
+    previousMatchesPlayed: table.matchesPlayed,
+    previousLastFinishedAtMs: {
+      [m.teamA]: live.lastFinishedAtMs[m.teamA] || m.startedAtMs,
+      [m.teamB]: live.lastFinishedAtMs[m.teamB] || m.startedAtMs,
+    },
+    undoExpiresAtMs: finishedAt + 60000,
+  };
 
   m.winner = winnerTeam;
   m.loser = loserTeam;
@@ -918,7 +1013,6 @@ function finishMatch(tableNum, winnerTeam) {
   live.completed.push(m);
   live.activePairs.delete(m.teamA);
   live.activePairs.delete(m.teamB);
-  const finishedAt = Date.now();
   live.lastFinishedAtMs[m.teamA] = finishedAt;
   live.lastFinishedAtMs[m.teamB] = finishedAt;
   live.playCount[m.teamA] = (live.playCount[m.teamA] || 0) + 1;
@@ -935,6 +1029,50 @@ function finishMatch(tableNum, winnerTeam) {
   table.matchesPlayed++;
   table.state = "free";
   autoDispatchAndRender(table.num);
+  sendState();
+}
+
+function undoLastResult() {
+  const snapshot = getActiveUndoResult();
+  if (!live || !snapshot) return;
+  clearWinnerConfirmation();
+  const table = live.tables.find((t) => t.num === snapshot.tableNum);
+  if (!table) return;
+
+  if (table.currentMatch) {
+    live.activePairs.delete(table.currentMatch.teamA);
+    live.activePairs.delete(table.currentMatch.teamB);
+    live.queue.unshift(clearMatchOutcome(table.currentMatch));
+  }
+
+  const completedIndex = live.completed.findIndex((match) => match.num === snapshot.match.num);
+  if (completedIndex !== -1) {
+    live.completed.splice(completedIndex, 1);
+  }
+
+  live.playCount[snapshot.match.teamA] = Math.max(0, (live.playCount[snapshot.match.teamA] || 0) - 1);
+  live.playCount[snapshot.match.teamB] = Math.max(0, (live.playCount[snapshot.match.teamB] || 0) - 1);
+  live.points[snapshot.winnerTeam] = Math.max(0, (live.points[snapshot.winnerTeam] || 0) - 1);
+  live.teamTotalSeconds[snapshot.match.teamA] = Math.max(0, (live.teamTotalSeconds[snapshot.match.teamA] || 0) - snapshot.elapsedSeconds);
+  live.teamTotalSeconds[snapshot.match.teamB] = Math.max(0, (live.teamTotalSeconds[snapshot.match.teamB] || 0) - snapshot.elapsedSeconds);
+  live.teamLoggedMatches[snapshot.match.teamA] = Math.max(0, (live.teamLoggedMatches[snapshot.match.teamA] || 0) - 1);
+  live.teamLoggedMatches[snapshot.match.teamB] = Math.max(0, (live.teamLoggedMatches[snapshot.match.teamB] || 0) - 1);
+  live.loggedGameCount = Math.max(0, live.loggedGameCount - 1);
+  live.loggedGameSeconds = Math.max(0, live.loggedGameSeconds - snapshot.elapsedSeconds);
+  live.lastFinishedAtMs[snapshot.match.teamA] = snapshot.previousLastFinishedAtMs[snapshot.match.teamA];
+  live.lastFinishedAtMs[snapshot.match.teamB] = snapshot.previousLastFinishedAtMs[snapshot.match.teamB];
+
+  table.currentMatch = {
+    ...snapshot.match,
+    startedAtMs: Date.now() - (snapshot.elapsedSeconds * 1000),
+  };
+  table.matchesPlayed = snapshot.previousMatchesPlayed;
+  table.state = "playing";
+  live.activePairs.add(snapshot.match.teamA);
+  live.activePairs.add(snapshot.match.teamB);
+  live.lastUndoResult = null;
+
+  renderLiveBoard();
   sendState();
 }
 
@@ -1127,6 +1265,12 @@ function ensureLiveTicker() {
 
   liveTimerInterval = setInterval(() => {
     if (!live || sectionLive.classList.contains("hidden")) return;
+    const hadUndoBefore = Boolean(live.lastUndoResult);
+    const activeUndo = getActiveUndoResult();
+    if (hadUndoBefore && !activeUndo) {
+      renderLiveBoard();
+      return;
+    }
 
     live.tables.forEach((table) => {
       if (table.state !== "playing" || !table.currentMatch) return;
@@ -1180,6 +1324,123 @@ function renderLiveBoard() {
   renderLiveQueue();
   renderGamesStatusTable();
   renderTeamTimeStats();
+  renderDashboard();
+  renderLiveAdminActions();
+}
+
+function renderDashboard() {
+  const summaryEl = document.getElementById("dashboard-summary");
+  const tablesEl = document.getElementById("dashboard-tables");
+  const teamsEl = document.getElementById("dashboard-teams");
+  const gamesSummaryEl = document.getElementById("dashboard-games-summary");
+  const gamesGridEl = document.getElementById("dashboard-games-grid");
+  if (!live || !summaryEl || !tablesEl || !teamsEl || !gamesSummaryEl || !gamesGridEl) return;
+
+  const activeTables = live.tables.filter((table) => table.state === "playing").length;
+  const remaining = live.total - live.completed.length;
+  summaryEl.textContent = `${remaining} remaining · ${activeTables} active · Leader: ${standingsSummary()}`;
+
+  tablesEl.innerHTML = live.tables.map((table) => {
+    if (table.state === "playing" && table.currentMatch) {
+      return `
+        <article class="dashboard-table-item">
+          <div class="dashboard-table-main">Table ${table.num}: ${table.currentMatch.teamA} vs ${table.currentMatch.teamB}</div>
+          <div class="dashboard-table-meta">${table.matchesPlayed} played · ${fmtClock(Math.max(1, Math.floor((Date.now() - table.currentMatch.startedAtMs) / 1000)))} running</div>
+        </article>
+      `;
+    }
+
+    if (table.state === "waiting") {
+      return `
+        <article class="dashboard-table-item">
+          <div class="dashboard-table-main">Table ${table.num}: waiting</div>
+          <div class="dashboard-table-meta">${table.matchesPlayed} played · no eligible match right now</div>
+        </article>
+      `;
+    }
+
+    if (table.state === "done") {
+      return `
+        <article class="dashboard-table-item">
+          <div class="dashboard-table-main">Table ${table.num}: complete</div>
+          <div class="dashboard-table-meta">${table.matchesPlayed} played · no more matches</div>
+        </article>
+      `;
+    }
+
+    const nextReady = eligibleMatches(table)[0];
+    return `
+      <article class="dashboard-table-item">
+        <div class="dashboard-table-main">Table ${table.num}: ready</div>
+        <div class="dashboard-table-meta">${table.matchesPlayed} played${nextReady ? ` · next ${nextReady.teamA} vs ${nextReady.teamB}` : ""}</div>
+      </article>
+    `;
+  }).join("");
+
+  const groupEntries = live.groups && live.groups.length > 1
+    ? live.groups.map((group) => ({
+        label: group.label,
+        teams: Array.from(new Set(
+          live.allMatches
+            .filter((match) => match.groupId === group.id)
+            .flatMap((match) => [match.teamA, match.teamB])
+        )),
+      }))
+    : [{ label: "Teams", teams: Object.keys(live.points) }];
+
+  teamsEl.className = `dashboard-teams${groupEntries.length > 1 ? " dashboard-teams-split" : ""}`;
+  teamsEl.innerHTML = groupEntries.map((group) => {
+    const rows = group.teams.map((team) => ({
+      team,
+      points: live.points[team] || 0,
+      played: live.playCount[team] || 0,
+      status: live.activePairs.has(team) ? "Playing" : `Waiting ${fmtClock(waitingScore(team))}`,
+    })).sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (a.played !== b.played) return a.played - b.played;
+      return a.team.localeCompare(b.team);
+    });
+
+    return `
+      <article class="dashboard-team-group">
+        <h4>${group.label}</h4>
+        <table class="dashboard-team-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Team</th>
+              <th>Pts</th>
+              <th>Pld</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${row.team}</td>
+                <td>${row.points}</td>
+                <td>${row.played}</td>
+                <td>${row.status}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </article>
+    `;
+  }).join("");
+
+  const completedByNum = new Map(live.completed.map((m) => [m.num, m]));
+  const playingByNum = new Map(
+    live.tables
+      .filter((table) => table.state === "playing" && table.currentMatch)
+      .map((table) => [table.currentMatch.num, { tableNum: table.num, startedAtMs: table.currentMatch.startedAtMs }])
+  );
+  gamesSummaryEl.textContent = `${live.completed.length} played · ${activeTables} playing · ${remaining} pending`;
+  gamesGridEl.className = "games-status-grid";
+  gamesGridEl.innerHTML = live.groups.length > 1
+    ? live.groups.map((group) => renderGamesStatusGroup(group, completedByNum, playingByNum)).join("")
+    : buildGamesStatusRows(live.allMatches, completedByNum, playingByNum);
 }
 
 function renderLiveTables() {
@@ -1238,9 +1499,33 @@ function renderLiveTables() {
 
   grid.querySelectorAll(".btn-win").forEach((btn) => {
     btn.addEventListener("click", () => {
-      finishMatch(Number(btn.dataset.table), btn.dataset.winner);
+      handleWinnerButtonClick(btn);
     });
   });
+  grid.querySelectorAll("[data-undo-result='1']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      undoLastResult();
+    });
+  });
+}
+
+function winnerConfirmState(tableNum) {
+  if (!pendingWinnerConfirm || pendingWinnerConfirm.tableNum !== tableNum) {
+    return null;
+  }
+  return pendingWinnerConfirm;
+}
+
+function undoButtonMarkup(tableNum) {
+  const undoResult = getActiveUndoResult();
+  if (!undoResult || undoResult.tableNum !== tableNum || !adminSessionLoggedIn) {
+    return "";
+  }
+  return `
+    <button class="btn-secondary" data-undo-result="1" data-table="${tableNum}">
+      Undo ${undoResult.winnerTeam} won
+    </button>
+  `;
 }
 
 function buildLiveTableCard(table) {
@@ -1254,6 +1539,9 @@ function buildLiveTableCard(table) {
       const aPts = live.points[m.teamA] || 0;
       const bPts = live.points[m.teamB] || 0;
       const elapsed = Math.max(1, Math.floor((Date.now() - m.startedAtMs) / 1000));
+      const confirmState = winnerConfirmState(table.num);
+      const teamAConfirming = Boolean(confirmState && confirmState.winnerTeam === m.teamA);
+      const teamBConfirming = Boolean(confirmState && confirmState.winnerTeam === m.teamB);
       poolBadge = m.groupLabel ? `<span class="live-pool-badge">${m.groupLabel}</span>` : "";
       bodyHtml = `
         <div class="live-match-display">
@@ -1267,8 +1555,9 @@ function buildLiveTableCard(table) {
         </div>
         <div class="result-prompt">Select winner:</div>
         <div class="result-actions">
-          <button class="btn-win" data-table="${table.num}" data-winner="${m.teamA}">${m.teamA} won</button>
-          <button class="btn-win" data-table="${table.num}" data-winner="${m.teamB}">${m.teamB} won</button>
+          <button class="btn-win ${teamAConfirming ? "btn-win-confirming" : ""}" data-table="${table.num}" data-winner="${m.teamA}" ${teamAConfirming ? 'data-confirming="1"' : ""}>${teamAConfirming ? `Are you sure ${m.teamA} won?` : `${m.teamA} won`}</button>
+          <button class="btn-win ${teamBConfirming ? "btn-win-confirming" : ""}" data-table="${table.num}" data-winner="${m.teamB}" ${teamBConfirming ? 'data-confirming="1"' : ""}>${teamBConfirming ? `Are you sure ${m.teamB} won?` : `${m.teamB} won`}</button>
+          ${undoButtonMarkup(table.num)}
         </div>
       `;
     } else if (table.state === "done") {
@@ -1277,6 +1566,7 @@ function buildLiveTableCard(table) {
           <div class="live-waiting-icon">✅</div>
           <p>No more matches</p>
         </div>
+        ${undoButtonMarkup(table.num)}
       `;
     } else if (table.state === "waiting") {
       // Free but no eligible matches (all teams currently playing) — show waiting
@@ -1288,6 +1578,7 @@ function buildLiveTableCard(table) {
           <p>No eligible match right now</p>
           ${nextUp ? `<p class="muted small">Next: ${nextUp}</p>` : ""}
         </div>
+        ${undoButtonMarkup(table.num)}
       `;
     } else {
       const nextReady = eligibleMatches(table)[0];
@@ -1297,6 +1588,7 @@ function buildLiveTableCard(table) {
           <p>Table ready</p>
           ${nextReady ? `<p class="muted small">Next: ${nextReady.groupLabel ? `${nextReady.groupLabel}: ` : ""}${nextReady.teamA} vs ${nextReady.teamB}</p>` : ""}
         </div>
+        ${undoButtonMarkup(table.num)}
       `;
     }
 
@@ -1539,21 +1831,167 @@ return `
 `;
 }
 
-// ─── Authentication ───────────────────────────────────────────────────────────
+// ─── Portal auth & tournament dashboard ──────────────────────────────────────
+
+let adminSessionLoggedIn = false;
+
+function apiUrl(action) {
+  return `${apiBase}?action=${encodeURIComponent(action)}`;
+}
+
+function buildTournamentUrl(tournamentId) {
+  const url = new URL(publicHome, location.href);
+  url.search = "";
+  url.searchParams.set("id", tournamentId);
+  return url.toString();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
+function setStatusMessage(el, message, tone = "muted") {
+  if (!el) return;
+  el.textContent = message;
+  if (tone === "error") {
+    el.style.color = "#b91c1c";
+  } else if (tone === "success") {
+    el.style.color = "#15803d";
+  } else {
+    el.style.color = "";
+  }
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function showLandingShell() {
+  if (authShell) authShell.classList.remove("hidden");
+  if (appShell) appShell.classList.add("hidden");
+}
+
+function showTournamentShell() {
+  if (authShell) authShell.classList.add("hidden");
+  if (appShell) appShell.classList.remove("hidden");
+}
 
 function checkAuthState() {
-  const authToken = localStorage.getItem("adminAuth");
-  const loginCard = document.getElementById("login-card");
-  const adminDashboard = document.getElementById("admin-dashboard");
-  
-  if (authToken) {
-    loginCard.classList.add("hidden");
-    adminDashboard.classList.remove("hidden");
-    return true;
+  if (!adminDashboard) return adminSessionLoggedIn;
+
+  if (portalMode === "admin") {
+    if (loginCard) loginCard.classList.toggle("hidden", adminSessionLoggedIn);
+    adminDashboard.classList.toggle("hidden", !adminSessionLoggedIn);
+    if (dashboardTitle) dashboardTitle.textContent = "Admin controls";
+    if (dashboardDescription) dashboardDescription.textContent = "Create a new tournament or open an existing one.";
+    if (adminRouteHint) adminRouteHint.classList.add("hidden");
+    if (createTournamentForm) createTournamentForm.classList.toggle("hidden", !adminSessionLoggedIn);
+    if (dashboardTabs) dashboardTabs.classList.toggle("hidden", !adminSessionLoggedIn);
+    if (toggleTournamentsBtn) toggleTournamentsBtn.classList.toggle("admin-dashboard-tab-active", adminSessionLoggedIn);
+    if (tournamentsPanel) tournamentsPanel.classList.toggle("hidden", !adminSessionLoggedIn);
+    return adminSessionLoggedIn;
+  }
+
+  if (loginCard) loginCard.classList.add("hidden");
+  adminDashboard.classList.remove("hidden");
+  if (dashboardTitle) dashboardTitle.textContent = "Select tournament";
+  if (dashboardDescription) dashboardDescription.textContent = "Choose a tournament from the list below to open the live draw.";
+  if (adminRouteHint) adminRouteHint.classList.remove("hidden");
+  if (createTournamentForm) createTournamentForm.classList.add("hidden");
+  if (dashboardTabs) dashboardTabs.classList.add("hidden");
+  if (tournamentsPanel) {
+    tournamentsPanel.classList.remove("hidden");
+  }
+  return adminSessionLoggedIn;
+}
+
+async function refreshAuthState() {
+  try {
+    const response = await fetch(apiUrl("auth-status"), { cache: "no-store" });
+    const payload = await response.json();
+    adminSessionLoggedIn = Boolean(payload && payload.ok && payload.isLoggedIn);
+  } catch (_) {
+    adminSessionLoggedIn = localStorage.getItem("adminAuth") === "1";
+  }
+
+  if (adminSessionLoggedIn) {
+    localStorage.setItem("adminAuth", "1");
   } else {
-    loginCard.classList.remove("hidden");
-    adminDashboard.classList.add("hidden");
-    return false;
+    localStorage.removeItem("adminAuth");
+  }
+  return adminSessionLoggedIn;
+}
+
+function renderTournamentList(tournaments) {
+  if (!tournamentList) return;
+
+  if (!Array.isArray(tournaments) || tournaments.length === 0) {
+    tournamentList.innerHTML = `
+      <article class="tournament-item">
+        <h4>No tournaments yet</h4>
+        <div class="tournament-meta">Create one to get started.</div>
+      </article>
+    `;
+    return;
+  }
+
+  tournamentList.innerHTML = tournaments.map((tournament) => {
+    const accessCode = tournament.accessCode
+      ? `<div class="tournament-meta">Quick ID: <strong>${escapeHtml(tournament.accessCode)}</strong>${tournament.hidden ? " · Hidden" : " · Visible"}</div>`
+      : "";
+    const updatedAt = tournament.updatedAt
+      ? `<div class="tournament-meta small">Updated ${escapeHtml(formatDateTime(tournament.updatedAt))}</div>`
+      : "";
+    const visibilityAction = adminSessionLoggedIn && Object.prototype.hasOwnProperty.call(tournament, "hidden")
+      ? `<button type="button" class="btn-ghost tournament-action-btn" data-action="toggle-hidden" data-id="${escapeHtml(tournament.id)}" data-hidden="${tournament.hidden ? "1" : "0"}">${tournament.hidden ? "Show" : "Hide"}</button>`
+      : "";
+
+    return `
+      <article class="tournament-item">
+        <h4>${escapeHtml(tournament.name)}</h4>
+        ${accessCode}
+        ${updatedAt}
+        <div class="admin-actions" style="margin-top:0.75rem;">
+          <button type="button" class="btn-secondary tournament-action-btn" data-action="open" data-id="${escapeHtml(tournament.id)}">Open</button>
+          ${visibilityAction}
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+async function loadTournamentList() {
+  if (!tournamentList) return;
+
+  tournamentList.innerHTML = `
+    <article class="tournament-item">
+      <div class="tournament-meta">Loading tournaments...</div>
+    </article>
+  `;
+
+  try {
+    const response = await fetch(apiUrl("list-tournaments"), { cache: "no-store" });
+    const payload = await response.json();
+    if (!payload || !payload.ok) {
+      throw new Error(payload && payload.error ? payload.error : "Could not load tournaments.");
+    }
+    renderTournamentList(payload.tournaments || []);
+  } catch (error) {
+    tournamentList.innerHTML = `
+      <article class="tournament-item">
+        <h4>Could not load tournaments</h4>
+        <div class="tournament-meta">${escapeHtml(error.message || "Unknown error.")}</div>
+      </article>
+    `;
   }
 }
 
@@ -1562,58 +2000,146 @@ async function submitAuth(e) {
   const username = document.getElementById("admin-username")?.value || "";
   const password = document.getElementById("admin-password")?.value || "";
   const messageEl = document.getElementById("auth-message");
-  
+
   if (!username || !password) {
-    messageEl.textContent = "Please enter username and password";
-    messageEl.style.color = "var(--error-color, #d32f2f)";
+    setStatusMessage(messageEl, "Please enter username and password.", "error");
     return;
   }
-  
+
   try {
-    const response = await fetch("api.php?action=login", {
+    const response = await fetch(apiUrl("login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password }),
     });
-    
     const result = await response.json();
-    
-    if (result.ok) {
-      localStorage.setItem("adminAuth", "1");
-      messageEl.textContent = "";
-      checkAuthState();
-    } else {
-      messageEl.textContent = result.error || "Invalid credentials";
-      messageEl.style.color = "var(--error-color, #d32f2f)";
+
+    if (!result || !result.ok) {
+      setStatusMessage(messageEl, (result && result.error) || "Invalid credentials.", "error");
+      return;
     }
+
+    adminSessionLoggedIn = true;
+    localStorage.setItem("adminAuth", "1");
+    setStatusMessage(messageEl, "");
+    checkAuthState();
+    await loadTournamentList();
   } catch (err) {
-    messageEl.textContent = "Login error: " + err.message;
-    messageEl.style.color = "var(--error-color, #d32f2f)";
+    setStatusMessage(messageEl, `Login error: ${err.message}`, "error");
   }
 }
 
-function logoutAdmin() {
+async function logoutAdmin() {
+  try {
+    await fetch(apiUrl("logout"), { cache: "no-store" });
+  } catch (_) {
+  }
+  adminSessionLoggedIn = false;
   localStorage.removeItem("adminAuth");
   checkAuthState();
 }
 
+async function createTournament(e) {
+  e.preventDefault();
+  if (!tournamentCodeInput) return;
+
+  const name = tournamentNameInput ? tournamentNameInput.value.trim() : "";
+  const accessCode = tournamentCodeInput.value.trim().toUpperCase();
+
+  if (!/^[A-Z0-9]{5}$/.test(accessCode)) {
+    setStatusMessage(adminMessage, "Enter a 5-character quick ID using letters or numbers.", "error");
+    return;
+  }
+
+  setStatusMessage(adminMessage, "Creating tournament...");
+  try {
+    const response = await fetch(apiUrl("create-tournament"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, accessCode }),
+    });
+    const payload = await response.json();
+    if (!payload || !payload.ok || !payload.tournament || !payload.tournament.id) {
+      throw new Error(payload && payload.error ? payload.error : "Could not create tournament.");
+    }
+
+    location.href = buildTournamentUrl(payload.tournament.id);
+  } catch (error) {
+    setStatusMessage(adminMessage, error.message || "Could not create tournament.", "error");
+  }
+}
+
+async function handleTournamentListClick(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  const tournamentId = button.dataset.id || "";
+  if (!tournamentId) return;
+
+  if (button.dataset.action === "open") {
+    location.href = buildTournamentUrl(tournamentId);
+    return;
+  }
+
+  if (button.dataset.action === "toggle-hidden") {
+    const shouldHide = button.dataset.hidden !== "1";
+    try {
+      const response = await fetch(apiUrl("set-tournament-hidden"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tournamentId, hidden: shouldHide }),
+      });
+      const payload = await response.json();
+      if (!payload || !payload.ok) {
+        throw new Error(payload && payload.error ? payload.error : "Could not update tournament visibility.");
+      }
+      await loadTournamentList();
+    } catch (error) {
+      setStatusMessage(adminMessage, error.message || "Could not update tournament visibility.", "error");
+    }
+  }
+}
+
+async function initPortal() {
+  const loginForm = document.getElementById("admin-login-form");
+  if (loginForm) {
+    loginForm.addEventListener("submit", submitAuth);
+  }
+
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", logoutAdmin);
+  }
+
+  if (createTournamentForm) {
+    createTournamentForm.addEventListener("submit", createTournament);
+  }
+
+  if (tournamentList) {
+    tournamentList.addEventListener("click", handleTournamentListClick);
+  }
+
+  const undoBtn = document.getElementById("undo-last-result-btn");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", undoLastResult);
+  }
+
+  initLiveTabs();
+
+  await refreshAuthState();
+
+  if (getOrCreateSessionId()) {
+    showTournamentShell();
+    initRemoteSync();
+    return;
+  }
+
+  showLandingShell();
+  checkAuthState();
+  await loadTournamentList();
+  initRemoteSync();
+}
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
-// Setup auth form
-const loginForm = document.getElementById("admin-login-form");
-if (loginForm) {
-  loginForm.addEventListener("submit", submitAuth);
-}
-
-const logoutBtn = document.getElementById("logout-btn");
-if (logoutBtn) {
-  logoutBtn.addEventListener("click", logoutAdmin);
-}
-
-// Check initial auth state
-checkAuthState();
-
-initLiveTabs();
-initRemoteSync();
-
-
+void initPortal();

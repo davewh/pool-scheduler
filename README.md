@@ -25,12 +25,13 @@ That makes **PHP + MySQL** the safest shared-hosting backend for live sync.
 
 ## Project structure
 
-- [public/index.html](./public/index.html) - main app
-- [public/styles.css](./public/styles.css) - styling
-- [public/script.js](./public/script.js) - client logic
-- [public/api.php](./public/api.php) - shared-state API
-- [public/config.sample.php](./public/config.sample.php) - database config template
-- [public/schema.sql](./public/schema.sql) - MySQL table schema
+- [index.html](./index.html) - public tournament portal
+- [admin/index.html](./admin/index.html) - admin login and tournament management
+- [script.js](./script.js) - client logic
+- [api.php](./api.php) - shared-state API
+- [config.sample.php](./config.sample.php) - production DB config template
+- [config.pool_test.sample.php](./config.pool_test.sample.php) - test DB config template for `/pool_test`
+- [public/schema.sql](./public/schema.sql) - MySQL table schema (optional manual import)
 
 ## How live sync works
 
@@ -55,22 +56,21 @@ In Crazy Domains / cPanel:
 
 ### 2. Upload the website files
 
-Upload the contents of [public/](./public/) into your site web root, typically `public_html`.
+Upload the project files into each server folder you want to run:
 
-You should end up with files like:
+- `public_html/pool/` (live)
+- `public_html/pool_test/` (testing)
 
-```text
-public_html/
-  index.html
-  styles.css
-  script.js
-  api.php
-  config.php
-```
+Both folders should contain the same app files, including [admin/](./admin/), [index.html](./index.html), [script.js](./script.js), and [api.php](./api.php).
 
-### 3. Create config.php
+### 3. Create SQL configs (live + test)
 
-Copy [public/config.sample.php](./public/config.sample.php) to `config.php` and fill in your MySQL details:
+In each deployed folder:
+
+- copy [config.sample.php](./config.sample.php) to `config.php` for live SQL
+- copy [config.pool_test.sample.php](./config.pool_test.sample.php) to `config.pool_test.php` for test SQL
+
+Fill each file with the matching database credentials:
 
 ```php
 <?php
@@ -86,6 +86,8 @@ return [
 ];
 ```
 
+When the app runs under a `/pool_test` path, [api.php](./api.php) will prefer `config.pool_test.php`; otherwise it uses `config.php`.
+
 ### 4. Create the table
 
 Either:
@@ -98,7 +100,8 @@ Either:
 Example:
 
 ```text
-https://aitrax.co.nz/
+https://your-site.example/pool/
+https://your-site.example/pool_test/
 ```
 
 Lock a draw, then share the session link shown in the Settings tab or top bar.
@@ -114,7 +117,6 @@ You can still open the HTML file directly in a browser for single-screen local u
 If you have PHP installed:
 
 ```bash
-cd public
 php -S localhost:8000
 ```
 
@@ -126,6 +128,6 @@ http://localhost:8000/
 
 ## Notes
 
-- `config.php` is intentionally gitignored
+- `config.php` and `config.pool_test.php` are intentionally gitignored
 - shared hosting usually does **not** support a persistent Node/WebSocket process
 - polling is used instead of WebSockets so it works on standard PHP hosting

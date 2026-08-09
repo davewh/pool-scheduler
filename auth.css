@@ -1,0 +1,131 @@
+.auth-shell {
+  max-width: 980px;
+  margin: 0 auto 2rem;
+  padding: 1rem;
+}
+.auth-card,
+.admin-card {
+  background: #ffffff !important;
+  border: 1px solid #dbe2ea;
+  border-radius: 1rem;
+  padding: 1.2rem;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+  color: #102033 !important;
+}
+.auth-card h2,
+.admin-card h3 {
+  margin-top: 0;
+}
+.auth-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.1fr 0.9fr;
+}
+.auth-form,
+.tournament-form {
+  display: grid;
+  gap: 0.75rem;
+}
+.auth-form label,
+.tournament-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #102033;
+  font-weight: 600;
+}
+.auth-form input,
+.tournament-form input,
+.tournament-access-form input {
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.55rem;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.4;
+  -webkit-text-fill-color: #0f172a;
+}
+
+.auth-form input::placeholder,
+.tournament-form input::placeholder,
+.tournament-access-form input::placeholder {
+  color: #64748b;
+}
+.auth-actions,
+.admin-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.auth-message,
+.admin-message {
+  min-height: 1.3rem;
+  font-size: 0.95rem;
+  color: var(--muted, #94a3b8);
+}
+.hidden {
+  display: none !important;
+}
+.tournament-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.admin-dashboard-tabs {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.admin-dashboard-tab {
+  border-radius: 999px;
+}
+.admin-dashboard-tab-active {
+  background: var(--primary, #0f766e);
+  color: #fff;
+  border-color: var(--primary, #0f766e);
+}
+.tournament-item {
+  border: 1px solid var(--border, #334155);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: rgba(255,255,255,0.03);
+}
+.tournament-item h4 {
+  margin: 0 0 0.35rem;
+}
+.tournament-meta {
+  color: var(--muted, #94a3b8);
+  font-size: 0.9rem;
+}
+.tournament-item .small {
+  font-size: 0.85rem;
+}
+.tournament-access-form {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.55rem;
+}
+.tournament-action-btn {
+  white-space: nowrap;
+}
+.tournament-delete-list-btn {
+  border-color: #dc2626;
+  color: #fecaca;
+}
+.tournament-delete-list-btn:hover,
+.tournament-delete-list-btn:focus-visible {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fee2e2;
+}
+.tournament-access-form input {
+  min-width: 140px;
+  flex: 1 1 140px;
+}
+@media (max-width: 860px) {
+  .auth-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -9,4 +9,7 @@ desktop.ini
 *.swo
 
 # Local deployment config
+config.php
+config.pool_test.php
 public/config.php
+public/config.pool_test.php
