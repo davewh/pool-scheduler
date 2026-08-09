@@ -1,4 +1,4 @@
-﻿// ─── Element refs ────────────────────────────────────────────────────────────
+// ─── Element refs ────────────────────────────────────────────────────────────
 
 const form             = document.getElementById("scheduler-form");
 const formError        = document.getElementById("form-error");
@@ -1539,8 +1539,81 @@ return `
 `;
 }
 
+// ─── Authentication ───────────────────────────────────────────────────────────
+
+function checkAuthState() {
+  const authToken = localStorage.getItem("adminAuth");
+  const loginCard = document.getElementById("login-card");
+  const adminDashboard = document.getElementById("admin-dashboard");
+  
+  if (authToken) {
+    loginCard.classList.add("hidden");
+    adminDashboard.classList.remove("hidden");
+    return true;
+  } else {
+    loginCard.classList.remove("hidden");
+    adminDashboard.classList.add("hidden");
+    return false;
+  }
+}
+
+async function submitAuth(e) {
+  e.preventDefault();
+  const username = document.getElementById("admin-username")?.value || "";
+  const password = document.getElementById("admin-password")?.value || "";
+  const messageEl = document.getElementById("auth-message");
+  
+  if (!username || !password) {
+    messageEl.textContent = "Please enter username and password";
+    messageEl.style.color = "var(--error-color, #d32f2f)";
+    return;
+  }
+  
+  try {
+    const response = await fetch("api.php?action=login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    
+    const result = await response.json();
+    
+    if (result.ok) {
+      localStorage.setItem("adminAuth", "1");
+      messageEl.textContent = "";
+      checkAuthState();
+    } else {
+      messageEl.textContent = result.error || "Invalid credentials";
+      messageEl.style.color = "var(--error-color, #d32f2f)";
+    }
+  } catch (err) {
+    messageEl.textContent = "Login error: " + err.message;
+    messageEl.style.color = "var(--error-color, #d32f2f)";
+  }
+}
+
+function logoutAdmin() {
+  localStorage.removeItem("adminAuth");
+  checkAuthState();
+}
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+
+// Setup auth form
+const loginForm = document.getElementById("admin-login-form");
+if (loginForm) {
+  loginForm.addEventListener("submit", submitAuth);
+}
+
+const logoutBtn = document.getElementById("logout-btn");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", logoutAdmin);
+}
+
+// Check initial auth state
+checkAuthState();
 
 initLiveTabs();
 initRemoteSync();
+
 
