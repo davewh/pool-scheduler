@@ -449,10 +449,11 @@ function setStep(n) {
     else if (i + 1 < n) pill.classList.add("done");
   });
 
-  // Hide hero and step nav when on live board (step 4) to maximise screen space
+  // Hide hero, step nav and session bar when on live board (step 4) to maximise screen space
   const onLive = n === 4;
   document.querySelector(".hero")?.classList.toggle("hidden", onLive);
   document.querySelector(".steps")?.classList.toggle("hidden", onLive);
+  document.getElementById("session-bar")?.classList.toggle("hidden", onLive);
 }
 
 function updateDrawControlVisibility() {
