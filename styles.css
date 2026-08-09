@@ -660,7 +660,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .dashboard-tables {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .dashboard-teams {

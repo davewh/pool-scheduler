@@ -448,6 +448,11 @@ function setStep(n) {
     if (i + 1 === n) pill.classList.add("active");
     else if (i + 1 < n) pill.classList.add("done");
   });
+
+  // Hide hero and step nav when on live board (step 4) to maximise screen space
+  const onLive = n === 4;
+  document.querySelector(".hero")?.classList.toggle("hidden", onLive);
+  document.querySelector(".steps")?.classList.toggle("hidden", onLive);
 }
 
 function updateDrawControlVisibility() {
@@ -2325,6 +2330,75 @@ function renderLiveBoard() {
   renderLiveAdminActions();
 }
 
+// ─── Shared standings helpers ─────────────────────────────────────────────────
+
+function buildStandingsRows(teams) {
+  return teams.map((team) => {
+    const isPlaying = live.activePairs.has(team);
+    const activeTable = isPlaying
+      ? live.tables.find((t) => t.state === "playing" && t.currentMatch && (t.currentMatch.teamA === team || t.currentMatch.teamB === team))
+      : null;
+    const playingSeconds = activeTable?.currentMatch ? getCurrentMatchElapsedSeconds(activeTable.currentMatch) : 0;
+    const logged = live.teamLoggedMatches[team] || 0;
+    const totalSeconds = live.teamTotalSeconds[team] || 0;
+    const avg = averageTeamSeconds(team);
+    const points = live.points[team] || 0;
+    const waitingSeconds = waitingScore(team);
+    return { team, isPlaying, playingSeconds, waitingSeconds, logged, totalSeconds, avg, points };
+  }).sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    const h2hKey = [a.team, b.team].sort().join("|");
+    const h2hWinner = live.completed.find((m) => {
+      const key = [m.teamA, m.teamB].sort().join("|");
+      return key === h2hKey && m.winner;
+    })?.winner;
+    if (h2hWinner === a.team) return -1;
+    if (h2hWinner === b.team) return 1;
+    return (live.teamNumbers[a.team] ?? 999) - (live.teamNumbers[b.team] ?? 999);
+  });
+}
+
+function computePositions(sortedRows) {
+  const h2h = new Map();
+  live.completed.forEach((m) => {
+    if (!m.winner) return;
+    const key = [m.teamA, m.teamB].sort().join("|");
+    h2h.set(key, m.winner);
+  });
+
+  const isTiedWith = (a, b) => {
+    if (a.points !== b.points) return false;
+    return !h2h.has([a.team, b.team].sort().join("|"));
+  };
+
+  const posMap = new Map();
+  let groupStartPos = 1;
+  for (let i = 0; i < sortedRows.length; i++) {
+    let assignedPos;
+    if (i === 0) {
+      assignedPos = 1;
+      groupStartPos = 1;
+    } else if (isTiedWith(sortedRows[i], sortedRows[i - 1])) {
+      assignedPos = groupStartPos;
+    } else {
+      groupStartPos = i + 1;
+      assignedPos = groupStartPos;
+    }
+    posMap.set(sortedRows[i].team, { pos: assignedPos, tied: false });
+  }
+  posMap.forEach((val) => {
+    val.tied = [...posMap.values()].some((v) => v !== val && v.pos === val.pos);
+  });
+
+  function ordinal(n) {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  return { posMap, ordinal };
+}
+
 function renderDashboard() {
   const summaryEl = document.getElementById("dashboard-summary");
   const tablesEl = document.getElementById("dashboard-tables");
@@ -2393,16 +2467,8 @@ function renderDashboard() {
 
   teamsEl.className = `dashboard-teams${groupEntries.length > 1 ? " dashboard-teams-split" : ""}`;
   teamsEl.innerHTML = groupEntries.map((group) => {
-    const rows = group.teams.map((team) => ({
-      team,
-      points: live.points[team] || 0,
-      played: live.playCount[team] || 0,
-      status: live.activePairs.has(team) ? "Playing" : `Waiting ${fmtClock(waitingScore(team))}`,
-    })).sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      if (a.played !== b.played) return a.played - b.played;
-      return a.team.localeCompare(b.team);
-    });
+    const rows = buildStandingsRows(group.teams);
+    const { posMap, ordinal } = computePositions(rows);
 
     return `
       <article class="dashboard-team-group">
@@ -2410,23 +2476,30 @@ function renderDashboard() {
         <table class="dashboard-team-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Team</th>
-              <th>Pts</th>
-              <th>Pld</th>
+              <th>Position</th>
+              <th>Team Name</th>
               <th>Status</th>
+              <th>Matches</th>
+              <th>Total</th>
+              <th>Average</th>
+              <th>Points</th>
             </tr>
           </thead>
           <tbody>
-            ${rows.map((row, index) => `
+            ${rows.map((row) => {
+              const { pos, tied } = posMap.get(row.team) || { pos: "-", tied: false };
+              const posLabel = pos === "-" ? "-" : `${ordinal(pos)}${tied ? "=" : ""}`;
+              return `
               <tr>
-                <td>${index + 1}</td>
+                <td>${posLabel}</td>
                 <td>${row.team}</td>
+                <td>${row.isPlaying ? `<span class="team-status-playing">Playing ${fmtClock(row.playingSeconds)}</span>` : `<span class="team-status-waiting">Waiting ${fmtClock(row.waitingSeconds)}</span>`}</td>
+                <td>${row.logged}</td>
+                <td>${row.logged === 0 ? "-" : fmtClock(row.totalSeconds)}</td>
+                <td>${row.avg === null ? "-" : fmtClock(row.avg)}</td>
                 <td>${row.points}</td>
-                <td>${row.played}</td>
-                <td>${row.status}</td>
               </tr>
-            `).join("")}
+            `}).join("")}
           </tbody>
         </table>
       </article>
@@ -2735,87 +2808,14 @@ function renderTeamTimeStats() {
   // Don't wipe the table while an inline rename input is open
   if (body.querySelector(".team-name-input-inline")) return;
 
-  const rows = Object.keys(live.points).map((team) => {
-    const isPlaying = live.activePairs.has(team);
-    const activeTable = isPlaying
-      ? live.tables.find((table) => table.state === "playing" && table.currentMatch && (table.currentMatch.teamA === team || table.currentMatch.teamB === team))
-      : null;
-    const playingSeconds = activeTable && activeTable.currentMatch
-      ? getCurrentMatchElapsedSeconds(activeTable.currentMatch)
-      : 0;
-    const waitingSeconds = waitingScore(team);
-    const logged = live.teamLoggedMatches[team] || 0;
-    const totalSeconds = live.teamTotalSeconds[team] || 0;
-    const avg = averageTeamSeconds(team);
-    const points = live.points[team] || 0;
-    return { team, isPlaying, playingSeconds, waitingSeconds, logged, totalSeconds, avg, points };
-  });
+  const allTeams = Object.keys(live.points);
+  const standingsRows = buildStandingsRows(allTeams);
+  const { posMap, ordinal } = computePositions(standingsRows);
 
-  // Build head-to-head lookup: h2h.get("A|B") = winner name (always keyed alphabetically)
-  const h2h = new Map();
-  live.completed.forEach((m) => {
-    if (!m.winner) return;
-    const key = [m.teamA, m.teamB].sort().join("|");
-    h2h.set(key, m.winner);
-  });
-
-  const standingsSort = (a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    const h2hKey = [a.team, b.team].sort().join("|");
-    const h2hWinner = h2h.get(h2hKey);
-    if (h2hWinner === a.team) return -1;
-    if (h2hWinner === b.team) return 1;
-    // Within a truly tied group, order by team number for stable display
-    return (live.teamNumbers[a.team] ?? 999) - (live.teamNumbers[b.team] ?? 999);
-  };
-
-  // Always compute positions from standings order, regardless of display sort
-  const standingsRows = [...rows].sort(standingsSort);
-
-  // Two teams are tied if same points and no decisive h2h result between them
-  const isTiedWith = (a, b) => {
-    if (a.points !== b.points) return false;
-    const key = [a.team, b.team].sort().join("|");
-    return !h2h.has(key); // no h2h result → truly tied
-  };
-
-  // Assign positions with gaps (3rd=, 3rd=, ... 10th)
-  // Track the position each "group" started at
-  const posMap = new Map(); // team → { pos, tied }
-  let groupStartPos = 1;
-  for (let i = 0; i < standingsRows.length; i++) {
-    let assignedPos;
-    if (i === 0) {
-      assignedPos = 1;
-      groupStartPos = 1;
-    } else if (isTiedWith(standingsRows[i], standingsRows[i - 1])) {
-      // Same tied group — use the group's starting position
-      assignedPos = groupStartPos;
-    } else {
-      // New group starts here
-      groupStartPos = i + 1;
-      assignedPos = groupStartPos;
-    }
-    posMap.set(standingsRows[i].team, { pos: assignedPos, tied: false });
-  }
-  // Mark tied positions (any pos shared by more than one team)
-  posMap.forEach((val) => {
-    const anyOther = [...posMap.values()].some((v) => v !== val && v.pos === val.pos);
-    val.tied = anyOther;
-  });
-
-  function ordinal(n) {
-    const s = ["th", "st", "nd", "rd"];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-  }
-
-  // Now sort rows for display
-  if (teamsSortMode === "number") {
-    rows.sort((a, b) => (live.teamNumbers[a.team] ?? 999) - (live.teamNumbers[b.team] ?? 999));
-  } else {
-    rows.sort(standingsSort);
-  }
+  // Display sort: standings order or by team number
+  const rows = teamsSortMode === "number"
+    ? [...standingsRows].sort((a, b) => (live.teamNumbers[a.team] ?? 999) - (live.teamNumbers[b.team] ?? 999))
+    : standingsRows;
 
   // Update header active states
   const posToggle = document.getElementById("teams-position-sort-toggle");
