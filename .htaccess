@@ -1,3 +1,9 @@
+RewriteEngine On
+RewriteRule ^pool/?$ play/ [L]
+RewriteRule ^pool/(.+)$ play/$1 [L]
+RewriteRule ^invite/?$ invites/ [L]
+RewriteRule ^invites/?$ invites/ [L]
+
 # Browser caching for static assets (30 days)
 <FilesMatch "\.(js|css|woff2|woff|ttf|eot|png|jpg|jpeg|gif|svg|ico)$">
   Header set Cache-Control "public, max-age=2592000"

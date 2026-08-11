@@ -1,0 +1,156 @@
+.help-shell {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.help-header {
+  text-align: center;
+  margin-bottom: 3rem;
+  border-bottom: 2px solid #0f766e;
+  padding-bottom: 1.5rem;
+}
+
+.help-header h1 {
+  margin: 0 0 0.5rem;
+  color: #102033;
+  font-size: 2rem;
+}
+
+.help-header p {
+  margin: 0 0 1rem;
+  color: #64748b;
+  font-size: 1.1rem;
+}
+
+.help-back-link {
+  display: inline-block;
+  color: #0f766e;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0.5rem 0;
+  border-bottom: 2px solid #0f766e;
+  transition: color 0.2s ease;
+}
+
+.help-back-link:hover {
+  color: #115e59;
+}
+
+.help-container {
+  display: grid;
+  gap: 2rem;
+}
+
+.help-section {
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 0.8rem;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.help-section:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.help-section h2 {
+  margin-top: 0;
+  color: #0f766e;
+  font-size: 1.5rem;
+  border-bottom: 2px solid #ecfeff;
+  padding-bottom: 0.75rem;
+}
+
+.help-section > p {
+  color: #64748b;
+  margin-bottom: 1rem;
+  font-size: 1.05rem;
+}
+
+.help-content {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.help-content h3 {
+  color: #102033;
+  margin-top: 1.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+}
+
+.help-content h3:first-child {
+  margin-top: 0;
+}
+
+.help-content ul,
+.help-content ol {
+  color: #334155;
+  line-height: 1.8;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.help-content li {
+  margin-bottom: 0.5rem;
+}
+
+.help-content li > ul {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.help-content li > ul > li {
+  margin-bottom: 0.35rem;
+  color: #475569;
+}
+
+.help-content strong {
+  color: #102033;
+  font-weight: 600;
+}
+
+.help-tip {
+  background: #ecfeff;
+  border-left: 4px solid #0f766e;
+  padding: 1rem;
+  border-radius: 0.4rem;
+  color: #064e48;
+  margin-top: 1rem;
+  font-size: 0.95rem;
+}
+
+.help-tip strong {
+  color: #064e48;
+}
+
+@media (max-width: 768px) {
+  .help-shell {
+    padding: 1rem;
+  }
+
+  .help-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+  }
+
+  .help-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .help-section {
+    padding: 1rem;
+  }
+
+  .help-section h2 {
+    font-size: 1.25rem;
+  }
+
+  .help-content ul,
+  .help-content ol {
+    margin-left: 1.25rem;
+  }
+}

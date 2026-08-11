@@ -4,43 +4,51 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pool Draw Scheduler</title>
-  <link rel="stylesheet" href="../styles.css?v=20260810d">
-  <link rel="stylesheet" href="../auth.css?v=20260810d">
+  <link rel="stylesheet" href="../styles.css?v=20260812c">
+  <link rel="stylesheet" href="../auth.css?v=20260811c">
 </head>
 <body data-portal-mode="public" data-api-base="../api.php" data-public-home="../">
   <section class="auth-shell" id="auth-shell">
+    <div class="account-bar hidden" id="account-bar">
+      <span class="account-email" id="account-email"></span>
+      <button type="button" class="account-logout-btn" id="top-logout-btn">Log out</button>
+    </div>
     <div class="auth-grid">
-      <div class="auth-card hidden" id="login-card">
-        <h2>Pool scheduler admin</h2>
-        <p class="muted">Log in to create and manage tournaments. If you are not logged in you will see the public tournament list.</p>
+      <div class="auth-card" id="login-card">
+        <h2 id="auth-card-title">Create your free account</h2>
+        <p class="muted" id="auth-card-description">Register with your email address and password to create and manage your own tournaments.</p>
         <form id="admin-login-form" class="auth-form">
           <label>
-            <span>Username</span>
-            <input id="admin-username" name="username" type="text" value="admin" required>
+            <span>Email address</span>
+            <input id="admin-email" name="email" type="email" maxlength="190" autocomplete="email" required>
           </label>
           <label>
             <span>Password</span>
-            <input id="admin-password" name="password" type="password" value="admin" required>
+            <input id="admin-password" name="password" type="password" minlength="6" autocomplete="current-password" required>
           </label>
           <div class="auth-actions">
-            <button type="submit">Log in</button>
+            <button type="submit" id="auth-submit-btn">Sign up</button>
+            <button type="button" id="auth-toggle-btn" class="btn-ghost">Already have an account? Log in</button>
           </div>
           <div id="auth-message" class="auth-message"></div>
         </form>
       </div>
       <div class="admin-card" id="admin-dashboard">
-        <h3 id="dashboard-title">Select tournament</h3>
-        <p class="muted" id="dashboard-description">Choose a tournament and enter its 5-character Quick ID to open the live draw.</p>
+        <h3 id="dashboard-title">Open or create a tournament</h3>
+        <p class="muted" id="dashboard-description">Sign up free to create tournaments, or open a shared tournament with its 5-character code.</p>
         <p class="muted small hidden" id="admin-route-hint">To create or manage tournaments, go to <strong>/pool/admin</strong>.</p>
+        <form id="open-by-code-form" class="tournament-access-form">
+          <label class="sr-only" for="open-by-code-input">Tournament code</label>
+          <input id="open-by-code-input" name="accessCode" type="text" maxlength="5" placeholder="Enter 5-char code" autocomplete="off" required>
+          <button type="submit">Open by code</button>
+        </form>
+        <div id="open-by-code-message" class="auth-message"></div>
         <form id="create-tournament-form" class="tournament-form hidden">
           <label>
             <span>Tournament name</span>
             <input id="tournament-name" name="tournamentName" type="text" maxlength="200" placeholder="Tournament 000001">
           </label>
-          <label>
-            <span>Quick ID (5 chars)</span>
-            <input id="tournament-code" name="tournamentCode" type="text" maxlength="5" placeholder="ABC12" required autocomplete="off">
-          </label>
+          <p class="muted small">A 5-character share code will be generated automatically.</p>
           <div class="admin-actions">
             <button type="submit">Create tournament</button>
             <button type="button" id="logout-btn" class="btn-ghost">Log out</button>
@@ -61,8 +69,8 @@
         <h1>Build a full pool draw schedule for your club</h1>
         <p class="intro">
           Enter how many teams are playing, how many pool tables are available,
-          and how long a best-of-3 usually takes. Name your teams, then generate
-          a random draw — re-draw as many times as you like before locking it in.
+          and how long a game usually takes. Choose Best of 1, 3, or 5 on the draw step to estimate
+          the event time, then generate a random draw — re-draw as many times as you like before locking it in.
         </p>
       </div>
       <div class="example-card">
@@ -104,24 +112,48 @@
           <input id="tableCount" name="tableCount" type="number" min="1" max="32" value="4" required>
         </label>
         <label>
-          <span>Min match length (min)</span>
-          <input id="minMinutes" name="minMinutes" type="number" min="1" max="300" value="30" required>
+          <span>Approx time per game <span class="inline-help-dot" title="This is how long each single game or set takes. We recommend 18 minutes per game. Best of 3 uses about 2.5× this for estimates, so 18 minutes becomes about 45 minutes per match. Only the admin knows their club best. This is used for estimates and guidance later on.">?</span></span>
+          <input id="gameMinutes" name="gameMinutes" type="number" min="1" max="180" value="18" required>
         </label>
         <label>
-          <span>Max match length (min)</span>
-          <input id="maxMinutes" name="maxMinutes" type="number" min="1" max="300" value="45" required>
+          <span>Location</span>
+          <input id="tournamentLocation" name="tournamentLocation" type="text" maxlength="200" placeholder="Club rooms">
         </label>
-        <label class="ref-setting-toggle">
-          <span>Ref option</span>
-          <input id="refEnabled" name="refEnabled" type="checkbox">
+        <label>
+          <span>Muster date</span>
+          <div class="date-input-shell">
+            <input id="musterDate" name="musterDate" type="text" placeholder="YYYY-MM-DD HH:MM" autocomplete="off">
+            <button type="button" class="date-picker-btn" id="musterDatePickerBtn" aria-label="Choose date and time">📅</button>
+            <input id="musterDatePicker" type="datetime-local" step="300" hidden>
+          </div>
         </label>
-        <label id="refModeWrap" class="hidden">
-          <span>First round refs</span>
-          <select id="refMode" name="refMode">
-            <option value="random" selected>Random team refs first round</option>
-            <option value="manual">Manual ref team selection</option>
-          </select>
-        </label>
+        <div class="advanced-settings-block">
+          <button type="button" class="advanced-settings-toggle" id="advanced-settings-toggle" aria-expanded="false">
+            <span>Advanced</span>
+            <span class="advanced-settings-caret">▾</span>
+          </button>
+          <div class="advanced-settings-panel hidden" id="advanced-settings-panel">
+            <label class="tournament-visibility-toggle">
+              <span>Show in public tournament list</span>
+              <input id="tournament-public" name="tournamentPublic" type="checkbox" checked>
+            </label>
+            <label>
+              <span>Days to stay public</span>
+              <input id="tournament-public-days" name="tournamentPublicDays" type="number" min="1" max="365" value="7">
+            </label>
+            <label class="ref-setting-toggle">
+              <span>Ref option</span>
+              <input id="refEnabled" name="refEnabled" type="checkbox">
+            </label>
+            <label id="refModeWrap" class="hidden">
+              <span>First round refs</span>
+              <select id="refMode" name="refMode">
+                <option value="random" selected>Random team refs first round</option>
+                <option value="manual">Manual ref team selection</option>
+              </select>
+            </label>
+          </div>
+        </div>
         <div class="actions">
           <button type="submit">Next: Enter team names →</button>
         </div>
@@ -189,6 +221,33 @@
               <button type="button" id="draw-mode-random-btn" class="btn-secondary">Random</button>
               <button type="button" id="draw-mode-manual-btn" class="btn-secondary">Manual</button>
             </div>
+            <div id="draw-format-controls" class="draw-mode-sub-actions">
+              <label class="draw-format-control">
+                <span>Best of</span>
+                <div class="draw-format-options" role="radiogroup" aria-label="Best of">
+                  <label class="draw-format-option">
+                    <input type="radio" name="drawBestOfGames" value="1">
+                    <span>1</span>
+                  </label>
+                  <label class="draw-format-option">
+                    <input type="radio" name="drawBestOfGames" value="3" checked>
+                    <span>3</span>
+                  </label>
+                  <label class="draw-format-option">
+                    <input type="radio" name="drawBestOfGames" value="5">
+                    <span>5</span>
+                  </label>
+                </div>
+                <input type="hidden" id="draw-best-of-games" name="drawBestOfGames" value="3">
+              </label>
+              <div id="draw-finals-controls" class="draw-finals-controls hidden">
+                <label class="draw-format-control">
+                  <span>Finalists</span>
+                  <select id="draw-finals-team-count" name="drawFinalsTeamCount"></select>
+                </label>
+                <div id="draw-finals-rounds" class="draw-finals-rounds"></div>
+              </div>
+            </div>
             <div id="drawActions" class="draw-actions hidden">
               <button type="button" id="redrawBtn" class="btn-secondary">↺ Re-draw</button>
               <button type="button" id="initialSortBtn" class="btn-secondary">↺ Initial sort</button>
@@ -210,6 +269,14 @@
             <span id="poolSummaryHint" class="muted"></span>
           </div>
           <div id="poolSummaryGrid" class="pool-summary-grid"></div>
+        </div>
+
+        <div id="finals-summary-section" class="pool-summary hidden">
+          <div class="queue-heading">
+            <h3>Finals knockout plan</h3>
+            <span id="finals-summary-hint" class="muted"></span>
+          </div>
+          <div id="finals-summary-grid" class="finals-summary-grid"></div>
         </div>
 
         <div id="plate-pairing-section" class="plate-pairing hidden">
@@ -256,6 +323,30 @@
         <button type="button" class="btn-ghost small" id="copy-session-btn">📋 Copy link</button>
         <span class="session-bar-hint muted small">Share this link with other screens on your network</span>
       </div>
+      <div class="panel tournament-active-summary hidden" id="tournament-active-summary">
+        <div>
+          <span class="muted small">Tournament</span>
+          <strong id="active-tournament-name">—</strong>
+        </div>
+        <div>
+          <span class="muted small">Code</span>
+          <strong id="active-tournament-code">—</strong>
+        </div>
+        <div>
+          <span class="muted small">Session</span>
+          <strong id="active-tournament-session">—</strong>
+        </div>
+      </div>
+      <div class="panel tournament-join-panel hidden" id="tournament-join-panel">
+        <div>
+          <h3 id="join-tournament-title">Want to play in this tournament?</h3>
+          <p id="join-tournament-meta" class="muted"></p>
+        </div>
+        <div class="tournament-join-actions">
+          <button type="button" id="join-tournament-btn" class="btn-secondary">Add me to tournament</button>
+          <div id="join-tournament-message" class="auth-message"></div>
+        </div>
+      </div>
 
       <!-- Tab navigation -->
       <nav class="live-tabs" aria-label="Live board sections">
@@ -263,6 +354,7 @@
         <button class="live-tab" data-tab="queue" type="button">⏱ Queue</button>
         <button class="live-tab" data-tab="games" type="button">🎱 Games</button>
         <button class="live-tab" data-tab="stats" type="button">📊 Stats</button>
+        <button class="live-tab hidden" data-tab="share" type="button" id="share-live-tab">✉ Share</button>
         <button class="live-tab" data-tab="settings" type="button">⚙ Settings</button>
       </nav>
 
@@ -349,6 +441,36 @@
         </div>
       </div>
 
+      <!-- Tab: Share -->
+      <div class="live-tab-panel hidden" id="tab-share">
+        <div class="panel settings-tab-panel">
+          <section class="settings-section">
+            <h3>Share tournament</h3>
+            <p class="muted">Send the tournament details and a join link to as many email addresses as you like.</p>
+            <div id="share-tournament-summary" class="settings-info-grid"></div>
+          </section>
+
+          <section class="settings-section">
+            <form id="share-tournament-form" class="share-invite-form">
+              <label for="share-tournament-emails">
+                <span>Email addresses</span>
+                <textarea id="share-tournament-emails" rows="6" placeholder="team1@example.com&#10;team2@example.com&#10;team3@example.com"></textarea>
+              </label>
+              <div class="settings-action-row">
+                <button type="submit">Send invitations</button>
+                <button type="button" id="share-join-link-btn" class="btn-ghost">Copy join link</button>
+              </div>
+              <div id="share-tournament-message" class="auth-message"></div>
+            </form>
+          </section>
+
+          <section class="settings-section hidden" id="tournament-members-wrap">
+            <h3>Players added so far</h3>
+            <div id="tournament-members-list" class="tournament-members-list"></div>
+          </section>
+        </div>
+      </div>
+
       <!-- Tab: Settings -->
       <div class="live-tab-panel hidden" id="tab-settings">
         <div class="panel settings-tab-panel">
@@ -364,6 +486,12 @@
             <div class="session-url-row">
               <code id="session-url-full" class="session-url-code">—</code>
               <button type="button" id="copy-url-btn" class="btn-ghost">Copy</button>
+            </div>
+            <div class="session-share-actions">
+              <button type="button" id="share-native-btn" class="btn-secondary">Share</button>
+              <button type="button" id="share-email-btn" class="btn-secondary">Email</button>
+              <button type="button" id="share-whatsapp-btn" class="btn-secondary">WhatsApp</button>
+              <button type="button" id="share-facebook-btn" class="btn-secondary">Facebook</button>
             </div>
             <p class="muted small" style="margin-top:0.5rem">Session ID: <strong id="session-id-settings"></strong></p>
             <p class="session-offline-hint muted small hidden" id="session-offline-hint">Running as a local file — upload to your PHP hosting to enable multi-computer sync.</p>
@@ -392,6 +520,10 @@
     </section>
 
   </main>
-  <script src="../script.js?v=20260810d"></script>
+  <script src="../script.js?v=20260810r"></script>
+  <script src="../draw-setup.js?v=20260810r"></script>
+  <script src="../live-board.js?v=20260810q"></script>
+  <script src="../portal-helpers.js?v=20260810q"></script>
+  <script src="../auth-portal.js?v=20260812b"></script>
 </body>
 </html>

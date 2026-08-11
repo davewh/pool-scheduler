@@ -4,121 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pool Draw Scheduler</title>
-  <link rel="stylesheet" href="../styles.css?v=20260812c">
-  <link rel="stylesheet" href="../auth.css?v=20260811c">
+  <link rel="stylesheet" href="../styles.css?v=20260810r">
+  <link rel="stylesheet" href="../auth.css?v=20260811a">
 </head>
-<body data-portal-mode="admin" data-api-base="../api.php" data-public-home="../">
-  <section class="auth-shell" id="auth-shell">
-    <div class="account-bar hidden" id="account-bar">
-      <span class="account-email" id="account-email"></span>
-      <a class="account-link" href="#account-panel">My Account</a>
-      <a class="account-link" href="../play/">Tournament board</a>
+<body data-portal-mode="play" data-api-base="../api.php" data-public-home="../">
+  <section class="auth-shell">
+    <div class="account-bar" id="play-top-bar">
+      <a class="account-link" href="../">Portal</a>
       <a class="account-link" href="../invites/">Invites</a>
-      <a id="admin-page-link" class="account-link hidden" href="../">Portal</a>
-      <button type="button" class="account-logout-btn" id="top-logout-btn">Log out</button>
-    </div>
-    <div class="auth-grid">
-      <div class="auth-card" id="login-card">
-        <h2 id="auth-card-title">Create your free account</h2>
-        <p class="muted" id="auth-card-description">Register with your email address and password to create and manage your own tournaments.</p>
-        <form id="admin-login-form" class="auth-form">
-          <label>
-            <span>Email address</span>
-            <input id="admin-email" name="email" type="email" maxlength="190" autocomplete="email" required>
-          </label>
-          <label>
-            <span>Password</span>
-            <input id="admin-password" name="password" type="password" minlength="6" autocomplete="current-password" required>
-          </label>
-          <div class="auth-actions">
-            <button type="submit" id="auth-submit-btn">Sign up</button>
-            <button type="button" id="auth-toggle-btn" class="btn-ghost">Already have an account? Log in</button>
-          </div>
-          <div id="auth-message" class="auth-message"></div>
-        </form>
-      </div>
-      <div class="admin-card hidden" id="admin-dashboard">
-        <h3 id="dashboard-title">Open or create a tournament</h3>
-        <p class="muted" id="dashboard-description">Sign up free to create tournaments, or open a shared tournament with its 5-character code.</p>
-        <p class="muted small hidden" id="admin-route-hint">Admin: <a href="../admin/">log in here</a>.</p>
-        <div class="admin-settings-panel hidden" id="admin-settings-panel">
-          <h4>Invite controls</h4>
-          <form id="admin-settings-form" class="auth-form">
-            <label class="tournament-visibility-toggle">
-              <span>Allow invites and sharing</span>
-              <input id="allow-invites-toggle" name="allowInvites" type="checkbox" checked>
-            </label>
-            <div class="admin-actions">
-              <button type="submit">Save</button>
-            </div>
-            <div id="admin-settings-message" class="auth-message"></div>
-          </form>
-        </div>
-        <form id="open-by-code-form" class="tournament-access-form">
-          <label class="sr-only" for="open-by-code-input">Tournament code</label>
-          <input id="open-by-code-input" name="accessCode" type="text" maxlength="5" placeholder="Enter 5-char code" autocomplete="off" required>
-          <button type="submit">Open by code</button>
-        </form>
-        <div id="open-by-code-message" class="auth-message"></div>
-        <div class="account-panel hidden" id="account-panel">
-          <div class="account-panel-header">
-            <h4>My Account</h4>
-            <p class="muted small">Update your display name and change your password.</p>
-          </div>
-          <form id="account-profile-form" class="auth-form account-form">
-            <label>
-              <span>Display name</span>
-              <input id="account-display-name" name="displayName" type="text" maxlength="80" placeholder="Your name">
-            </label>
-            <label>
-              <span>Email</span>
-              <input id="account-email-readonly" name="accountEmail" type="email" disabled>
-            </label>
-            <label>
-              <span>Current password</span>
-              <input id="account-current-password" name="currentPassword" type="password" minlength="6" autocomplete="current-password">
-            </label>
-            <label>
-              <span>New password</span>
-              <input id="account-new-password" name="newPassword" type="password" minlength="6" autocomplete="new-password">
-            </label>
-            <label>
-              <span>Confirm new password</span>
-              <input id="account-confirm-password" name="confirmPassword" type="password" minlength="6" autocomplete="new-password">
-            </label>
-            <div class="admin-actions">
-              <button type="submit">Save account</button>
-            </div>
-            <div id="account-profile-message" class="auth-message"></div>
-          </form>
-          <div class="account-section">
-            <h4>My Tournaments</h4>
-            <div id="account-tournaments-list" class="tournament-list"></div>
-          </div>
-        </div>
-        <form id="create-tournament-form" class="tournament-form hidden">
-          <label>
-            <span>Tournament name</span>
-            <input id="tournament-name" name="tournamentName" type="text" maxlength="200" placeholder="Tournament 000001">
-          </label>
-          <p class="muted small">A 5-character share code will be generated automatically.</p>
-          <div class="admin-actions">
-            <button type="submit">Create tournament</button>
-            <button type="button" id="logout-btn" class="btn-ghost">Log out</button>
-          </div>
-          <div id="admin-message" class="admin-message"></div>
-        </form>
-        <div class="admin-dashboard-tabs hidden" id="admin-dashboard-tabs">
-          <button type="button" id="toggle-tournaments-btn" class="btn-ghost admin-dashboard-tab">Tournaments</button>
-        </div>
-        <div id="tournaments-panel" class="hidden">
-          <div id="tournament-list" class="tournament-list"></div>
-        </div>
-      </div>
     </div>
   </section>
-
-  <main class="page hidden" id="app-shell">
+<main class="page" id="app-shell">
 
     <!-- Hero -->
     <section class="hero">
@@ -270,48 +166,50 @@
             <p id="scheduleDescription" class="muted"></p>
             <div id="scheduleTeamOrder" class="schedule-team-order"></div>
           </div>
-          <div id="drawModeActions" class="draw-mode-actions">
-            <button type="button" id="draw-mode-full-btn" class="btn-secondary dispatch-mode-btn-active">Full round robin</button>
-            <button type="button" id="draw-mode-split-btn" class="btn-secondary">Split into 2 pools</button>
-            <button type="button" id="draw-mode-plate-btn" class="btn-secondary">Plate knockout</button>
-          </div>
-          <div id="drawModeSubActions" class="draw-mode-sub-actions">
-            <button type="button" id="draw-mode-random-btn" class="btn-secondary">Random</button>
-            <button type="button" id="draw-mode-manual-btn" class="btn-secondary">Manual</button>
-          </div>
-          <div id="draw-format-controls" class="draw-mode-sub-actions">
-            <label class="draw-format-control">
-              <span>Best of</span>
-              <div class="draw-format-options" role="radiogroup" aria-label="Best of">
-                <label class="draw-format-option">
-                  <input type="radio" name="drawBestOfGames" value="1">
-                  <span>1</span>
-                </label>
-                <label class="draw-format-option">
-                  <input type="radio" name="drawBestOfGames" value="3" checked>
-                  <span>3</span>
-                </label>
-                <label class="draw-format-option">
-                  <input type="radio" name="drawBestOfGames" value="5">
-                  <span>5</span>
-                </label>
-              </div>
-              <input type="hidden" id="draw-best-of-games" name="drawBestOfGames" value="3">
-            </label>
-            <div id="draw-finals-controls" class="draw-finals-controls hidden">
-              <label class="draw-format-control">
-                <span>Finalists</span>
-                <select id="draw-finals-team-count" name="drawFinalsTeamCount"></select>
-              </label>
-              <div id="draw-finals-rounds" class="draw-finals-rounds"></div>
+          <div class="panel-heading-actions">
+            <div id="drawModeActions" class="draw-mode-actions">
+              <button type="button" id="draw-mode-full-btn" class="btn-secondary dispatch-mode-btn-active">Full round robin</button>
+              <button type="button" id="draw-mode-split-btn" class="btn-secondary">Split into 2 pools</button>
+              <button type="button" id="draw-mode-plate-btn" class="btn-secondary">Plate knockout</button>
             </div>
+            <div id="drawModeSubActions" class="draw-mode-sub-actions">
+              <button type="button" id="draw-mode-random-btn" class="btn-secondary">Random</button>
+              <button type="button" id="draw-mode-manual-btn" class="btn-secondary">Manual</button>
+            </div>
+            <div id="draw-format-controls" class="draw-mode-sub-actions">
+              <label class="draw-format-control">
+                <span>Best of</span>
+                <div class="draw-format-options" role="radiogroup" aria-label="Best of">
+                  <label class="draw-format-option">
+                    <input type="radio" name="drawBestOfGames" value="1">
+                    <span>1</span>
+                  </label>
+                  <label class="draw-format-option">
+                    <input type="radio" name="drawBestOfGames" value="3" checked>
+                    <span>3</span>
+                  </label>
+                  <label class="draw-format-option">
+                    <input type="radio" name="drawBestOfGames" value="5">
+                    <span>5</span>
+                  </label>
+                </div>
+                <input type="hidden" id="draw-best-of-games" name="drawBestOfGames" value="3">
+              </label>
+              <div id="draw-finals-controls" class="draw-finals-controls hidden">
+                <label class="draw-format-control">
+                  <span>Finalists</span>
+                  <select id="draw-finals-team-count" name="drawFinalsTeamCount"></select>
+                </label>
+                <div id="draw-finals-rounds" class="draw-finals-rounds"></div>
+              </div>
+            </div>
+            <div id="drawActions" class="draw-actions hidden">
+              <button type="button" id="redrawBtn" class="btn-secondary">↺ Re-draw</button>
+              <button type="button" id="initialSortBtn" class="btn-secondary">↺ Initial sort</button>
+              <button type="button" id="acceptBtn" class="btn-accept">✓ Accept draw</button>
+            </div>
+            <div id="lockedBadge" class="locked-badge hidden">🔒 Draw locked</div>
           </div>
-          <div id="drawActions" class="draw-actions hidden">
-            <button type="button" id="redrawBtn" class="btn-secondary">↺ Re-draw</button>
-            <button type="button" id="initialSortBtn" class="btn-secondary">↺ Initial sort</button>
-            <button type="button" id="acceptBtn" class="btn-accept">✓ Accept draw</button>
-          </div>
-          <div id="lockedBadge" class="locked-badge hidden">🔒 Draw locked</div>
         </div>
 
         <!-- Per-table draw cards shown after lock -->
@@ -419,7 +317,7 @@
         <button class="live-tab" data-tab="games" type="button">🎱 Games</button>
         <button class="live-tab" data-tab="stats" type="button">👥 Teams</button>
         <button class="live-tab hidden" data-tab="share" type="button" id="share-live-tab">✉ Share</button>
-        <button class="live-tab" data-tab="settings" type="button">⚙ Settings</button>
+        <button class="live-tab hidden" data-tab="settings" type="button">⚙ Settings</button>
       </nav>
 
       <!-- Tab: Dashboard -->
@@ -457,7 +355,7 @@
             <div>
               <h2>Live Match Board <span class="locked-badge">🔒 Draw locked</span></h2>
               <p id="live-desc" class="muted"></p>
-              <div class="dispatch-mode-panel">
+              <div class="dispatch-mode-panel hidden">
                 <span class="dispatch-mode-label">Next match logic</span>
                 <div class="dispatch-mode-actions" role="group" aria-label="Next match logic">
                   <button type="button" id="mode-waiting-btn" class="btn-secondary dispatch-mode-btn">Longest team waiting</button>
@@ -538,7 +436,7 @@
         </div>
       </div>
 
-      <!-- Tab: Share -->
+      <!-- Tab: Settings -->
       <div class="live-tab-panel hidden" id="tab-share">
         <div class="panel settings-tab-panel">
           <section class="settings-section">
@@ -568,7 +466,6 @@
         </div>
       </div>
 
-      <!-- Tab: Settings -->
       <div class="live-tab-panel hidden" id="tab-settings">
         <div class="panel settings-tab-panel">
 
@@ -596,7 +493,7 @@
 
           <section class="settings-section">
             <h3>Next match logic</h3>
-            <div class="dispatch-mode-panel">
+            <div class="dispatch-mode-panel hidden">
               <div class="dispatch-mode-actions" role="group" aria-label="Next match logic">
                 <button type="button" id="mode-waiting-btn2" class="btn-secondary dispatch-mode-btn">Longest team waiting</button>
                 <button type="button" id="mode-games-btn2" class="btn-secondary dispatch-mode-btn">Least games played</button>
@@ -639,6 +536,5 @@
   <script src="../draw-setup.js?v=20260810r"></script>
   <script src="../live-board.js?v=20260810q"></script>
   <script src="../portal-helpers.js?v=20260810q"></script>
-  <script src="../auth-portal.js?v=20260812b"></script>
 </body>
 </html>

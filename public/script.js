@@ -43,6 +43,49 @@ const step2Pill = document.getElementById("step2-pill");
 const step3Pill = document.getElementById("step3-pill");
 const step4Pill = document.getElementById("step4-pill");
 
+function buildFormBody(payload = {}) {
+  const params = new URLSearchParams();
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return params.toString();
+  }
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => params.append(key, item === undefined || item === null ? "" : String(item)));
+      return;
+    }
+    if (typeof value === "boolean") {
+      params.append(key, value ? "1" : "0");
+      return;
+    }
+    if (typeof value === "object") {
+      params.append(key, JSON.stringify(value));
+      return;
+    }
+    params.append(key, String(value));
+  });
+
+  return params.toString();
+}
+
+function buildApiPostOptions(payload = {}, extraOptions = {}) {
+  const headers = { ...(extraOptions.headers || {}) };
+  if (!Object.prototype.hasOwnProperty.call(headers, "Content-Type")) {
+    headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8";
+  }
+
+  return {
+    ...extraOptions,
+    method: "POST",
+    headers,
+    cache: "no-store",
+    body: extraOptions.body !== undefined ? extraOptions.body : buildFormBody(payload),
+  };
+}
+
 // ─── Session & remote sync ────────────────────────────────────────────────────
 
 let sessionId = null;
@@ -103,13 +146,7 @@ async function sendState() {
   if (!state) return;
 
   try {
-    const response = await fetch(syncApiUrl("save"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ state }),
-    });
+    const response = await fetch(syncApiUrl("save"), buildApiPostOptions({ state }));
     const payload = await response.json();
     if (payload && payload.ok && payload.updatedAt) {
       lastRemoteUpdatedAt = payload.updatedAt;

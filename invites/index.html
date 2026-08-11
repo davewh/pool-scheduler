@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pool Draw Scheduler</title>
+  <link rel="stylesheet" href="../styles.css?v=20260810m">
+  <link rel="stylesheet" href="../auth.css?v=20260810m">
+</head>
+<body data-portal-mode="invites" data-api-base="../api.php" data-public-home="../">
+  <section class="auth-shell" id="auth-shell">
+    <div class="account-bar hidden" id="account-bar">
+      <span class="account-email" id="account-email"></span>
+      <a class="account-link" href="../">Portal</a>
+      <a class="account-link" href="../play/">Tournament board</a>
+      <button type="button" class="account-logout-btn" id="top-logout-btn">Log out</button>
+    </div>
+    <div class="auth-grid">
+      <div class="auth-card" id="login-card">
+        <h2 id="auth-card-title">Continue from your invite</h2>
+        <p class="muted" id="auth-card-description">Use the email from the invite, create an account if needed, and open your tournament from here.</p>
+        <form id="admin-login-form" class="auth-form">
+          <label>
+            <span>Email address</span>
+            <input id="admin-email" name="email" type="email" maxlength="190" autocomplete="email" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="admin-password" name="password" type="password" minlength="6" autocomplete="current-password" required>
+          </label>
+          <div class="auth-actions">
+            <button type="submit" id="auth-submit-btn">Sign up</button>
+            <button type="button" id="auth-toggle-btn" class="btn-ghost">Already have an account? Log in</button>
+          </div>
+          <div id="auth-message" class="auth-message"></div>
+        </form>
+      </div>
+      <div class="admin-card" id="admin-dashboard">
+        <h3 id="dashboard-title">Invite access</h3>
+        <p class="muted" id="dashboard-description">Sign in or create an account to open the tournament you were invited to and manage your list of tournaments.</p>
+        <form id="open-by-code-form" class="tournament-access-form">
+          <label class="sr-only" for="open-by-code-input">Tournament code</label>
+          <input id="open-by-code-input" name="accessCode" type="text" maxlength="5" placeholder="Enter 5-char code" autocomplete="off" required>
+          <button type="submit">Open by code</button>
+        </form>
+        <div id="open-by-code-message" class="auth-message"></div>
+        <form id="create-tournament-form" class="tournament-form hidden">
+          <label>
+            <span>Tournament name</span>
+            <input id="tournament-name" name="tournamentName" type="text" maxlength="200" placeholder="Tournament 000001">
+          </label>
+          <p class="muted small">A 5-character share code will be generated automatically.</p>
+          <div class="admin-actions">
+            <button type="submit">Create tournament</button>
+            <button type="button" id="logout-btn" class="btn-ghost">Log out</button>
+          </div>
+          <div id="admin-message" class="admin-message"></div>
+        </form>
+        <div id="tournament-list" class="tournament-list"></div>
+      </div>
+    </div>
+  </section>
+  <script src="../script.js?v=20260810m"></script>
+  <script src="../draw-setup.js?v=20260810m"></script>
+  <script src="../live-board.js?v=20260810m"></script>
+  <script src="../portal-helpers.js?v=20260810m"></script>
+  <script src="../auth-portal.js?v=20260810m"></script>
+</body>
+</html>

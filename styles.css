@@ -162,9 +162,25 @@ label {
   font-weight: 700;
 }
 
+.inline-help-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: var(--primary-dark);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: help;
+}
+
 input[type="number"],
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+textarea {
   width: 100%;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
@@ -175,7 +191,154 @@ input[type="password"] {
   -webkit-text-fill-color: #0f172a;
 }
 
+.advanced-settings-block {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #dbe2ea;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.advanced-settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.75rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid #dbe2ea;
+  background: #ffffff;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.advanced-settings-caret {
+  transition: transform 0.2s ease;
+}
+
+.advanced-settings-block[aria-expanded="true"] .advanced-settings-caret {
+  transform: rotate(180deg);
+}
+
+.advanced-settings-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
 input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+textarea:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+textarea { resize: vertical; min-height: 7rem; }
+
+.date-input-shell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date-input-shell input[type="text"] {
+  flex: 1 1 auto;
+}
+
+.date-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: var(--primary-dark);
+  border: 1px solid #cbd5e1;
+  font-size: 1rem;
+}
+
+.date-picker-btn:hover,
+.date-picker-btn:focus-visible {
+  background: #e2e8f0;
+}
+
+.draw-format-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.draw-format-options {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.draw-format-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.draw-format-option input {
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.draw-format-option:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--accent);
+  color: var(--primary-dark);
+}
+
+#draw-format-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.draw-finals-controls {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.draw-finals-rounds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem;
+}
+
+.draw-finals-round-control {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.draw-finals-controls select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  font: inherit;
+  color: #0f172a;
+  background: #ffffff;
+}
 
 .settings-checkbox-row {
   display: flex;
@@ -224,6 +387,20 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   background: #15803d;
 }
 .btn-accept:hover { background: #166534; }
+
+.back-btn {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  font-weight: 600;
+}
+.back-btn:hover, .back-btn:focus-visible {
+  background: var(--accent);
+  border-color: var(--primary-dark);
+}
 
 .actions { display: flex; align-items: end; }
 
@@ -353,6 +530,37 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   color: #1e3a8a;
   font-size: 0.85rem;
   font-weight: 700;
+}
+
+.finals-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
+.finals-round-card {
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 0.8rem;
+}
+
+.finals-round-card h4 {
+  margin: 0 0 0.25rem;
+}
+
+.finals-round-matches {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
+.finals-round-match {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  background: #f8fafc;
+  font-size: 0.9rem;
 }
 
 /* ─── Results / summary ────────────────────────────── */
@@ -1433,6 +1641,11 @@ th { color: var(--muted); font-size: 0.95rem; }
   font-weight: 700;
 }
 
+.team-status-finished {
+  color: #166534;
+  font-weight: 700;
+}
+
 /* Teams tab sort toggle buttons */
 .teams-sort-toggle {
   background: none;
@@ -1692,6 +1905,26 @@ th { color: var(--muted); font-size: 0.95rem; }
   gap: 0.2rem;
 }
 
+.tournament-join-panel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.tournament-join-panel h3 {
+  margin: 0 0 0.35rem;
+}
+
+.tournament-join-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 240px;
+}
+
 /* ─── Live tabs ───────────────────────────────────────────────────────────── */
 
 .live-tabs {
@@ -1773,6 +2006,27 @@ th { color: var(--muted); font-size: 0.95rem; }
 }
 .settings-info-grid span { font-size: 0.75rem; }
 .settings-info-grid strong { font-size: 1.1rem; }
+
+.share-invite-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.tournament-members-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tournament-member-chip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
 
 .session-url-row {
   display: flex;
