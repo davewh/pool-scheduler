@@ -45,7 +45,7 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
 
   results.classList.add("hidden");
   sectionLive.classList.remove("hidden");
-  setStep(4);
+  setStep(6);
   sectionLive.scrollIntoView({ behavior: "smooth", block: "start" });
   renderSettingsTab();
   updateSessionDisplay();

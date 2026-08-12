@@ -7,6 +7,7 @@ const sectionNames     = document.getElementById("section-names");
 const namesDescription = document.getElementById("names-description");
 const teamNameGrid     = document.getElementById("team-name-grid");
 const backBtn          = document.getElementById("back-to-settings");
+const addTeamBtn       = document.getElementById("add-team-btn");
 const generateDrawBtn  = document.getElementById("generate-draw-btn");
 const splitDecision    = document.getElementById("split-decision");
 const splitDecisionText= document.getElementById("split-decision-text");
@@ -45,6 +46,7 @@ const drawSeedLabel        = document.getElementById("drawSeedLabel");
 const drawActions          = document.getElementById("drawActions");
 const redrawBtn            = document.getElementById("redrawBtn");
 const initialSortBtn       = document.getElementById("initialSortBtn");
+const saveDrawBtn          = document.getElementById("saveDrawBtn");
 const acceptBtn            = document.getElementById("acceptBtn");
 const lockedBadge          = document.getElementById("lockedBadge");
 const tableCardsSection    = document.getElementById("tableCardsSection");
@@ -67,6 +69,8 @@ const step1Pill = document.getElementById("step1-pill");
 const step2Pill = document.getElementById("step2-pill");
 const step3Pill = document.getElementById("step3-pill");
 const step4Pill = document.getElementById("step4-pill");
+const step5Pill = document.getElementById("step5-pill");
+const step6Pill = document.getElementById("step6-pill");
 const portalMode = document.body?.dataset?.portalMode || "public";
 const apiBase = document.body?.dataset?.apiBase || "api.php";
 const publicHome = document.body?.dataset?.publicHome || "./";
@@ -208,13 +212,24 @@ function initRemoteSync() {
   pollTimer = setInterval(fetchRemoteState, 5000);
 }
 
-async function sendState() {
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    flushStateForUnload();
+  }
+});
+window.addEventListener("pagehide", () => {
+  flushStateForUnload();
+});
+
+async function sendState(options = {}) {
   if (location.protocol === "file:" || !sessionId) return;
   const state = serializeState();
   if (!state) return;
 
   try {
-    const response = await fetch(syncApiUrl("save"), buildApiPostOptions({ state }));
+    const response = await fetch(syncApiUrl("save"), buildApiPostOptions({ state }, {
+      keepalive: Boolean(options.keepalive),
+    }));
     const payload = await response.json();
     if (payload && payload.ok && payload.updatedAt) {
       lastRemoteUpdatedAt = payload.updatedAt;
@@ -224,6 +239,36 @@ async function sendState() {
     }
   } catch (_) {
     showSyncHint("Could not save live state. Check api.php and config.php on your hosting.");
+  }
+}
+
+function flushStateForUnload() {
+  if (location.protocol === "file:" || !sessionId) return;
+  const state = serializeState();
+  if (!state) return;
+  const endpoint = syncApiUrl("save");
+  const payloadText = JSON.stringify({ state });
+
+  let sent = false;
+  if (typeof navigator.sendBeacon === "function") {
+    try {
+      const blob = new Blob([payloadText], { type: "application/json" });
+      sent = navigator.sendBeacon(endpoint, blob);
+    } catch (_) {
+      sent = false;
+    }
+  }
+  if (sent) return;
+
+  try {
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      keepalive: true,
+      body: payloadText,
+    }).catch(() => {});
+  } catch (_) {
   }
 }
 
@@ -255,10 +300,10 @@ async function fetchRemoteState() {
 }
 
 function serializeState() {
-  if (!isLocked || !live) return null;
+  if (!lastParams) return null;
   return {
     version: 1,
-    isLocked: true,
+    isLocked: Boolean(isLocked),
     editingFrozen,
     lastParams: lastParams ? {
       teamCount:  lastParams.teamCount,
@@ -271,6 +316,8 @@ function serializeState() {
       maxMinutes: lastParams.maxMinutes,
       location: lastParams.location || "",
       musterDate: lastParams.musterDate || "",
+      autoLockMinutes: Number.isFinite(Number(lastParams.autoLockMinutes)) ? Number(lastParams.autoLockMinutes) : 15,
+      autoStartEnabled: Boolean(lastParams.autoStartEnabled),
       isPublic: Boolean(lastParams.isPublic),
       visibilityDays: lastParams.visibilityDays || 7,
       teams:    lastParams.teams,
@@ -284,7 +331,7 @@ function serializeState() {
       firstRoundRefAssignments: lastParams.firstRoundRefAssignments || {},
       firstRoundRefRequiredTables: lastParams.firstRoundRefRequiredTables || [],
     } : null,
-    live: {
+    live: live ? {
       allMatches:        live.allMatches,
       tables:            live.tables,
       completed:         live.completed,
@@ -303,15 +350,15 @@ function serializeState() {
       refSettings:       live.refSettings || { enabled: false, mode: "none" },
       dispatchMode:      live.dispatchMode,
       lastUndoResult:    live.lastUndoResult || null,
-    },
+    } : null,
   };
 }
 
 function applySerializedState(state) {
-  if (!state || !state.isLocked || !state.live || !state.lastParams) return;
+  if (!state || !state.lastParams) return;
   const sl = state.live;
-  isLocked = true;
-  editingFrozen = Boolean(state.editingFrozen);
+  isLocked = Boolean(state.isLocked);
+  editingFrozen = Boolean(state.editingFrozen || state.isLocked);
   const fallbackBestOfGames = state.lastParams.bestOfGames || 3;
   const fallbackExpectedGames = getExpectedGamesPerMatch(fallbackBestOfGames);
   lastParams = {
@@ -322,6 +369,8 @@ function applySerializedState(state) {
     finalsBestOfByRound: state.lastParams.finalsBestOfByRound || {},
     initialTeams: state.lastParams.initialTeams || state.lastParams.teams || [],
     drawOrderMode: state.lastParams.drawOrderMode || "initial",
+    autoLockMinutes: Number.isFinite(Number(state.lastParams.autoLockMinutes)) ? Number(state.lastParams.autoLockMinutes) : 15,
+    autoStartEnabled: Boolean(state.lastParams.autoStartEnabled),
     refsEnabled: Boolean(state.lastParams.refsEnabled),
     refMode: state.lastParams.refMode || "none",
     loserRefMode: state.lastParams.loserRefMode || "none",
@@ -330,42 +379,58 @@ function applySerializedState(state) {
   };
   lastSlots = state.lastParams.drawData ? state.lastParams.drawData.slots : [];
 
-  const allMatchesByNum = new Map(sl.allMatches.map((m) => [m.num, m]));
-  live = {
-    allMatches:        sl.allMatches,
-    queue:             (sl.queueNums || []).map((n) => allMatchesByNum.get(n)).filter(Boolean),
-    tables:            sl.tables,
-    activePairs:       new Set(sl.activePairsArr || []),
-    playCount:         sl.playCount,
-    points:            sl.points,
-    teamTotalSeconds:  sl.teamTotalSeconds,
-    teamLoggedMatches: sl.teamLoggedMatches,
-    lastFinishedAtMs:  sl.lastFinishedAtMs,
-    loggedGameCount:   sl.loggedGameCount,
-    loggedGameSeconds: sl.loggedGameSeconds,
-    completed:         sl.completed,
-    total:             sl.total,
-    teamNumbers:       sl.teamNumbers,
-    initialTableOrder: [],
-    groups:            sl.groups,
-    refSettings:       normalizeRefSettings(sl.refSettings),
-    dispatchMode:      sl.dispatchMode,
-    lastUndoResult:    sl.lastUndoResult || null,
-  };
-  normalizeLiveTimerState();
+  if (sl) {
+    const allMatchesByNum = new Map(sl.allMatches.map((m) => [m.num, m]));
+    live = {
+      allMatches:        sl.allMatches,
+      queue:             (sl.queueNums || []).map((n) => allMatchesByNum.get(n)).filter(Boolean),
+      tables:            sl.tables,
+      activePairs:       new Set(sl.activePairsArr || []),
+      playCount:         sl.playCount,
+      points:            sl.points,
+      teamTotalSeconds:  sl.teamTotalSeconds,
+      teamLoggedMatches: sl.teamLoggedMatches,
+      lastFinishedAtMs:  sl.lastFinishedAtMs,
+      loggedGameCount:   sl.loggedGameCount,
+      loggedGameSeconds: sl.loggedGameSeconds,
+      completed:         sl.completed,
+      total:             sl.total,
+      teamNumbers:       sl.teamNumbers,
+      initialTableOrder: [],
+      groups:            sl.groups,
+      refSettings:       normalizeRefSettings(sl.refSettings),
+      dispatchMode:      sl.dispatchMode,
+      lastUndoResult:    sl.lastUndoResult || null,
+    };
+    normalizeLiveTimerState();
 
-  sectionSettings.classList.add("hidden");
-  sectionNames.classList.add("hidden");
-  results.classList.add("hidden");
-  sectionLive.classList.remove("hidden");
-  setStep(4);
+    sectionSettings.classList.add("hidden");
+    sectionNames.classList.add("hidden");
+    results.classList.add("hidden");
+    sectionLive.classList.remove("hidden");
+    setStep(6);
 
-  if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
-  ensureLiveTicker();
-  renderLiveBoard();
-  renderSettingsTab();
+    if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
+    ensureLiveTicker();
+    renderLiveBoard();
+    renderSettingsTab();
+    updateSessionDisplay();
+    syncEditingControls();
+    return;
+  }
+
+  live = null;
+  const restoredTeams = state.lastParams.initialTeams || state.lastParams.teams || [];
+  const restoredMode = state.lastParams.drawMode || "full";
+  runDraw(lastParams, restoredTeams, restoredMode, { teamOrder: state.lastParams.teams || restoredTeams });
+  if (state.isLocked || state.editingFrozen) {
+    isLocked = true;
+    editingFrozen = true;
+    drawActions?.classList.add("hidden");
+    showStartStep();
+    syncEditingControls();
+  }
   updateSessionDisplay();
-  syncEditingControls();
 }
 
 function updateSessionDisplay() {

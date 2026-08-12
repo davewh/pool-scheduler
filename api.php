@@ -2001,6 +2001,16 @@ if ($action === 'save') {
         ':state_json' => $stateJson,
     ]);
 
+    $tournamentStateStmt = $pdo->prepare(
+        'UPDATE pool_scheduler_tournaments
+         SET state_json = :state_json, updated_at = CURRENT_TIMESTAMP
+         WHERE tournament_id = :tournament_id AND is_deleted = 0'
+    );
+    $tournamentStateStmt->execute([
+        ':state_json' => $stateJson,
+        ':tournament_id' => $sessionId,
+    ]);
+
     $updatedStmt = $pdo->prepare('SELECT updated_at FROM pool_scheduler_sessions WHERE session_id = :session_id');
     $updatedStmt->execute([
         ':session_id' => $sessionId,

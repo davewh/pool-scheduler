@@ -42,6 +42,8 @@ const step1Pill = document.getElementById("step1-pill");
 const step2Pill = document.getElementById("step2-pill");
 const step3Pill = document.getElementById("step3-pill");
 const step4Pill = document.getElementById("step4-pill");
+const step5Pill = document.getElementById("step5-pill");
+const step6Pill = document.getElementById("step6-pill");
 
 function buildFormBody(payload = {}) {
   const params = new URLSearchParams();
@@ -253,7 +255,7 @@ function applySerializedState(state) {
   sectionNames.classList.add("hidden");
   results.classList.add("hidden");
   sectionLive.classList.remove("hidden");
-  setStep(4);
+  setStep(6);
 
   if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
   ensureLiveTicker();
@@ -377,11 +379,17 @@ let pendingDrawRequest = null;
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
 function setStep(n) {
-  [step1Pill, step2Pill, step3Pill, step4Pill].forEach((pill, i) => {
+  [step1Pill, step2Pill, step3Pill, step4Pill, step5Pill, step6Pill].forEach((pill, i) => {
+    if (!pill) return;
     pill.classList.remove("active", "done");
     if (i + 1 === n) pill.classList.add("active");
     else if (i + 1 < n) pill.classList.add("done");
   });
+
+  const onLive = n === 6;
+  document.querySelector(".hero")?.classList.toggle("hidden", onLive);
+  document.querySelector(".steps")?.classList.toggle("hidden", onLive);
+  document.getElementById("session-bar")?.classList.toggle("hidden", onLive);
 }
 
 // ─── Shuffle ─────────────────────────────────────────────────────────────────
@@ -570,10 +578,17 @@ function renderPoolSummary(section, hintEl, gridEl, groups, teamNumbers, options
 
 // ─── Step 1 → Step 2: build team name inputs ──────────────────────────────────
 
+function getMaxTeamCountValue() {
+  const parsed = Number.parseInt(String(document.getElementById("teamCount")?.value || "0"), 10);
+  return Number.isInteger(parsed) && parsed >= 2 ? parsed : 2;
+}
+
 function showTeamNamesStep(teamCount, tableCount) {
   teamNameGrid.innerHTML = "";
 
-  for (let i = 1; i <= teamCount; i++) {
+  const maxTeamCount = getMaxTeamCountValue();
+  const rowsToRender = Math.max(2, Math.min(teamCount || 2, maxTeamCount));
+  for (let i = 1; i <= rowsToRender; i++) {
     const label = document.createElement("label");
     label.innerHTML = `
       <span>Team ${i}</span>
@@ -583,8 +598,11 @@ function showTeamNamesStep(teamCount, tableCount) {
     teamNameGrid.appendChild(label);
   }
 
+  const actualTeamCount = Array.from(document.querySelectorAll(".team-name-input"))
+    .map((input) => input.value.trim())
+    .filter((value) => value.length > 0).length || rowsToRender;
   namesDescription.textContent =
-    `${teamCount} teams · edit the names below, then generate the draw.`;
+    `${actualTeamCount} teams · edit the names below, then generate the draw.`;
   hideSplitDecision();
 
   sectionSettings.classList.add("hidden");
@@ -596,10 +614,9 @@ function showTeamNamesStep(teamCount, tableCount) {
 // ─── Step 2 → Step 3: generate the draw ──────────────────────────────────────
 
 function readTeamNames() {
-  return Array.from(document.querySelectorAll(".team-name-input")).map((input, i) => {
-    const v = input.value.trim();
-    return v.length > 0 ? v : `Team ${i + 1}`;
-  });
+  return Array.from(document.querySelectorAll(".team-name-input"))
+    .map((input) => input.value.trim())
+    .filter((value) => value.length > 0);
 }
 
 function buildDrawData(params, teams, drawMode) {
@@ -815,7 +832,7 @@ redrawBtn.addEventListener("click", () => {
   runDraw(lastParams, lastParams.teams, lastParams.drawMode);
 });
 
-acceptBtn.addEventListener("click", () => {
+acceptBtn?.addEventListener("click", () => {
   if (isLocked) return;
   lockDraw();
 });
@@ -858,7 +875,7 @@ function initLiveBoard(slots, tableCount, teams, drawData) {
 
   results.classList.add("hidden");
   sectionLive.classList.remove("hidden");
-  setStep(4);
+  setStep(6);
   sectionLive.scrollIntoView({ behavior: "smooth", block: "start" });
   renderSettingsTab();
   updateSessionDisplay();

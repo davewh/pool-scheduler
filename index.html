@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pool Draw Scheduler</title>
-  <link rel="stylesheet" href="./styles.css?v=20260812c">
+  <link rel="stylesheet" href="./styles.css?v=20260812j">
   <link rel="stylesheet" href="./auth.css?v=20260811c">
 </head>
 <body data-portal-mode="public" data-api-base="./api.php" data-public-home="./">
@@ -188,7 +188,7 @@
         <h1>Build a full pool draw schedule for your club</h1>
         <p class="intro">
           Enter how many teams are playing, how many pool tables are available,
-          and how long a game usually takes. Choose Best of 1, 3, or 5 on the draw step to estimate
+          and how long a game usually takes. Choose Best of 1, 3, 5, or 7 on the draw step to estimate
           the event time, then generate a random draw — re-draw as many times as you like before locking it in.
         </p>
       </div>
@@ -215,7 +215,15 @@
       </button>
       <div class="step-connector"></div>
       <button type="button" id="step4-pill" class="step-pill" data-step="4">
-        <span class="step-num">4</span> Live board
+        <span class="step-num">4</span> Finals
+      </button>
+      <div class="step-connector"></div>
+      <button type="button" id="step5-pill" class="step-pill" data-step="5">
+        <span class="step-num">5</span> Start
+      </button>
+      <div class="step-connector"></div>
+      <button type="button" id="step6-pill" class="step-pill" data-step="6">
+        <span class="step-num">6</span> Live board
       </button>
     </nav>
 
@@ -223,7 +231,7 @@
     <section id="section-settings" class="panel">
       <form id="scheduler-form" class="form-grid">
         <label>
-          <span>Number of teams</span>
+          <span>Max number of Teams</span>
           <input id="teamCount" name="teamCount" type="number" min="2" max="64" value="12" required>
         </label>
         <label>
@@ -239,7 +247,7 @@
           <input id="tournamentLocation" name="tournamentLocation" type="text" maxlength="200" placeholder="Club rooms">
         </label>
         <label>
-          <span>Muster date</span>
+          <span>Muster Date/Time</span>
           <div class="date-input-shell">
             <input id="musterDate" name="musterDate" type="text" placeholder="YYYY-MM-DD HH:MM" autocomplete="off">
             <button type="button" class="date-picker-btn" id="musterDatePickerBtn" aria-label="Choose date and time">📅</button>
@@ -291,7 +299,10 @@
       </div>
       <div id="team-name-grid" class="team-name-grid"></div>
       <div class="names-footer">
-        <button type="button" id="generate-draw-btn">Generate draw →</button>
+        <button type="button" id="add-team-btn" class="btn-ghost">+ Add team</button>
+        <div class="names-footer-actions">
+          <button type="button" id="generate-draw-btn">Generate draw →</button>
+        </div>
       </div>
       <div id="split-decision" class="split-decision hidden">
         <p id="split-decision-text" class="muted"></p>
@@ -343,8 +354,8 @@
             </div>
             <div id="draw-format-controls" class="draw-mode-sub-actions">
               <label class="draw-format-control">
-                <span>Best of</span>
-                <div class="draw-format-options" role="radiogroup" aria-label="Best of">
+                <span>Best of Games</span>
+                <div class="draw-format-options" role="radiogroup" aria-label="Best of Games">
                   <label class="draw-format-option">
                     <input type="radio" name="drawBestOfGames" value="1">
                     <span>1</span>
@@ -360,18 +371,11 @@
                 </div>
                 <input type="hidden" id="draw-best-of-games" name="drawBestOfGames" value="3">
               </label>
-              <div id="draw-finals-controls" class="draw-finals-controls hidden">
-                <label class="draw-format-control">
-                  <span>Finalists</span>
-                  <select id="draw-finals-team-count" name="drawFinalsTeamCount"></select>
-                </label>
-                <div id="draw-finals-rounds" class="draw-finals-rounds"></div>
-              </div>
             </div>
             <div id="drawActions" class="draw-actions hidden">
               <button type="button" id="redrawBtn" class="btn-secondary">↺ Re-draw</button>
-              <button type="button" id="initialSortBtn" class="btn-secondary">↺ Initial sort</button>
-              <button type="button" id="acceptBtn" class="btn-accept">✓ Accept draw</button>
+              <button type="button" id="initialSortBtn" class="btn-secondary">↺ Initial draw</button>
+              <button type="button" id="finalsNextBtn" class="btn-secondary">Finals →</button>
             </div>
             <div id="lockedBadge" class="locked-badge hidden">🔒 Draw locked</div>
           </div>
@@ -411,7 +415,7 @@
           <div id="plate-pairing-available" class="plate-pairing-available"></div>
         </div>
 
-        <div class="table-wrap">
+        <div class="table-wrap hidden">
           <table>
             <thead>
               <tr>
@@ -428,7 +432,7 @@
           </div>
           <div id="first-round-ref-list" class="first-round-ref-list"></div>
         </div>
-        <div class="draw-games-preview">
+        <div class="draw-games-preview hidden">
           <div class="queue-heading">
             <h3>Games</h3>
             <span id="draw-games-summary" class="muted"></span>
@@ -438,7 +442,47 @@
       </div>
     </section>
 
-    <!-- Step 4: Live Board -->
+    <div id="finals-panel" class="panel hidden">
+      <div class="queue-heading">
+        <h3>Finals</h3>
+        <span class="muted">Choose who advances and choose best-of settings for each knockout round.</span>
+      </div>
+      <div id="draw-finals-controls" class="draw-finals-controls hidden">
+        <label class="draw-format-control">
+          <span>Finalists</span>
+          <div id="draw-finals-team-count" class="draw-format-options" role="radiogroup" aria-label="Finalists"></div>
+        </label>
+        <div id="draw-finals-rounds" class="draw-finals-rounds"></div>
+      </div>
+      <div class="draw-actions">
+        <button type="button" id="saveDrawBtn" class="btn-secondary">💾 Save draw</button>
+      </div>
+    </div>
+
+    <div id="start-panel" class="panel hidden">
+      <div class="queue-heading">
+        <h3>Ready to start</h3>
+        <span class="muted">Set optional automation, then lock/unlock or start.</span>
+      </div>
+      <div class="start-automation-grid">
+        <label class="start-automation-field">
+          <span>Auto-lock before muster (minutes)</span>
+          <input type="number" id="autoLockMinutes" min="0" max="240" step="5" value="15">
+          <span class="muted small">0 disables auto-lock.</span>
+        </label>
+        <label class="start-automation-toggle">
+          <input type="checkbox" id="autoStartEnabled">
+          <span>Auto-start at muster time</span>
+        </label>
+      </div>
+      <p id="start-automation-status" class="muted small start-automation-status"></p>
+      <div class="draw-actions">
+        <button type="button" id="toggleLockBtn" class="btn-secondary">🔒 Lock draw</button>
+        <button type="button" id="startDrawBtn" class="btn-accept">▶ Start</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Start / Step 5: Live Board -->
     <section id="section-live" class="hidden">
 
       <!-- Session bar -->
@@ -697,8 +741,8 @@
     </section>
 
   </main>
-  <script src="script.js?v=20260812s"></script>
-  <script src="draw-setup.js?v=20260812e"></script>
+  <script src="script.js?v=20260812w"></script>
+  <script src="draw-setup.js?v=20260812ae"></script>
   <script src="live-board.js?v=20260810q"></script>
   <script src="portal-helpers.js?v=20260810q"></script>
   <script src="auth-portal.js?v=20260812k"></script>

@@ -1,18 +1,46 @@
 const drawFinalsControls = document.getElementById("draw-finals-controls");
+const finalsPanel = document.getElementById("finals-panel");
 const drawFinalsTeamCountSelect = document.getElementById("draw-finals-team-count");
 const drawFinalsRounds = document.getElementById("draw-finals-rounds");
+const finalsNextBtn = document.getElementById("finalsNextBtn");
+const startPanel = document.getElementById("start-panel");
+const toggleLockBtn = document.getElementById("toggleLockBtn");
+const startDrawBtn = document.getElementById("startDrawBtn");
+const autoLockMinutesInput = document.getElementById("autoLockMinutes");
+const autoStartEnabledInput = document.getElementById("autoStartEnabled");
+const startAutomationStatus = document.getElementById("start-automation-status");
+let startAutomationTimer = null;
+
+function updateLockButtonState() {
+  if (!toggleLockBtn) return;
+  toggleLockBtn.textContent = isLocked ? "🔓 Unlock draw" : "🔒 Lock draw";
+  toggleLockBtn.classList.toggle("btn-accept", !isLocked);
+  toggleLockBtn.classList.toggle("btn-secondary", isLocked);
+}
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
+function getStepPills() {
+  return [
+    document.getElementById("step1-pill"),
+    document.getElementById("step2-pill"),
+    document.getElementById("step3-pill"),
+    document.getElementById("step4-pill"),
+    document.getElementById("step5-pill"),
+    document.getElementById("step6-pill"),
+  ];
+}
+
 function setStep(n) {
-  [step1Pill, step2Pill, step3Pill, step4Pill].forEach((pill, i) => {
+  getStepPills().forEach((pill, i) => {
+    if (!pill) return;
     pill.classList.remove("active", "done");
     if (i + 1 === n) pill.classList.add("active");
     else if (i + 1 < n) pill.classList.add("done");
   });
 
-  // Hide hero, step nav and session bar when on live board (step 4) to maximise screen space
-  const onLive = n === 4;
+  // Hide hero, step nav and session bar when on live board (step 6) to maximise screen space
+  const onLive = n === 6;
   document.querySelector(".hero")?.classList.toggle("hidden", onLive);
   document.querySelector(".steps")?.classList.toggle("hidden", onLive);
   document.getElementById("session-bar")?.classList.toggle("hidden", onLive);
@@ -22,11 +50,18 @@ function updateDrawControlVisibility() {
   if (!drawActions || !drawModeSubActions || !platePairingSection) return;
   drawActions.classList.toggle("hidden", !lastParams || !lastParams.drawMode || editingFrozen);
   const isPlateDraw = lastParams?.drawMode === "plate";
-  drawModeSubActions.classList.toggle("hidden", !isPlateDraw || editingFrozen);
+  drawModeSubActions.classList.add("hidden");
   platePairingSection.classList.toggle("hidden", !isPlateDraw || editingFrozen);
   if (!lastParams || editingFrozen) return;
   redrawBtn?.classList.remove("hidden");
-  acceptBtn?.classList.remove("hidden");
+  saveDrawBtn?.classList.remove("hidden");
+}
+
+function setScheduleSectionVisibility(drawMode) {
+  const scheduleHeadingMain = scheduleDescriptionEl?.closest(".panel-heading-main");
+  if (!scheduleHeadingMain) return;
+  const showSchedule = drawMode === "full";
+  scheduleHeadingMain.classList.toggle("hidden", !showSchedule);
 }
 
 function syncEditingControls() {
@@ -34,6 +69,7 @@ function syncEditingControls() {
   form.querySelectorAll("input, button, select").forEach((el) => { el.disabled = frozen; });
   [
     backBtn,
+    addTeamBtn,
     drawFullBtn,
     drawSplitBtn,
     drawPlateBtn,
@@ -47,12 +83,15 @@ function syncEditingControls() {
     platePairingFinishedBtn,
     redrawBtn,
     initialSortBtn,
-    acceptBtn,
+    finalsNextBtn,
+    saveDrawBtn,
+    toggleLockBtn,
+    startDrawBtn,
   ].forEach((btn) => {
     if (btn) btn.disabled = frozen;
   });
   if (drawFinalsTeamCountSelect) {
-    drawFinalsTeamCountSelect.disabled = frozen;
+    drawFinalsTeamCountSelect.querySelectorAll("input").forEach((inputEl) => { inputEl.disabled = frozen; });
   }
   if (drawFinalsRounds) {
     drawFinalsRounds.querySelectorAll("button, select, input").forEach((inputEl) => { inputEl.disabled = frozen; });
@@ -68,7 +107,13 @@ function syncEditingControls() {
   // so the admin can still rename teams after games have started.
   if (frozen) {
     document.querySelectorAll(".team-name-input").forEach((el) => { el.disabled = false; });
+    document.querySelectorAll(".delete-team-btn").forEach((el) => { el.disabled = true; });
+    if (addTeamBtn) addTeamBtn.disabled = true;
     if (generateDrawBtn) generateDrawBtn.disabled = false;
+    if (toggleLockBtn) toggleLockBtn.disabled = false;
+    if (startDrawBtn) startDrawBtn.disabled = false;
+  } else {
+    document.querySelectorAll(".delete-team-btn").forEach((el) => { el.disabled = false; });
   }
 }
 
@@ -83,6 +128,7 @@ function setDrawModeButtons(mode) {
   activeBtn?.classList.add("dispatch-mode-btn-active");
   const activeTeamCount = lastParams?.teamCount || Number.parseInt(teamCountInput?.value || "0", 10) || 0;
   syncFinalsControlVisibility(mode, activeTeamCount, lastParams?.finalsTeamCount ?? null, lastParams?.finalsBestOfByRound ?? null);
+  setScheduleSectionVisibility(mode);
   updateDrawControlVisibility();
   if (lastParams?.teams?.length) {
     renderPlatePairing();
@@ -167,6 +213,41 @@ function buildPlatePairings(teams) {
     matches,
     bracketSize,
     byeCount: bracketSize - orderedTeams.length,
+  };
+}
+
+function buildKnockoutSlotsAndMatches(rounds, tableNumbers, groupId, groupLabel, estimatedMinutes) {
+  const slots = [];
+  const matches = [];
+
+  rounds.forEach((round) => {
+    const roundMatchMinutes = Number.isFinite(estimatedMinutes) ? estimatedMinutes : 0;
+    const roundMatches = round.matches.map((match) => ({
+      ...match,
+      groupId,
+      groupLabel,
+      allowedTables: [...tableNumbers],
+      isKnockout: true,
+    }));
+
+    for (let i = 0; i < roundMatches.length; i += tableNumbers.length) {
+      const slice = roundMatches.slice(i, i + tableNumbers.length).map((match, idx) => ({
+        ...match,
+        table: tableNumbers[idx],
+      }));
+      slots.push({
+        label: round.roundLabel?.title || round.label || groupLabel,
+        assignments: slice,
+        estimatedMinutes: roundMatchMinutes,
+      });
+      matches.push(...slice);
+    }
+  });
+
+  return {
+    slots,
+    matches,
+    totalMatches: matches.length,
   };
 }
 
@@ -261,23 +342,6 @@ function renderKnockoutBracket(title, entrants, prefix) {
 }
 
 function renderPlateKnockoutPreview(pairing) {
-  const mainEntrants = pairing.matches.map((match) => knockoutAdvanceLabel(
-    match.teamA,
-    match.teamB,
-    match.label,
-    "winner",
-    match.seedA,
-    match.seedB
-  ));
-  const plateEntrants = pairing.matches.map((match) => knockoutAdvanceLabel(
-    match.teamA,
-    match.teamB,
-    match.label,
-    "loser",
-    match.seedA,
-    match.seedB
-  ));
-
   return `
     <div class="plate-knockout-layout">
       <section class="plate-bracket plate-qualifier-bracket">
@@ -300,10 +364,6 @@ function renderPlateKnockoutPreview(pairing) {
           </div>
         </div>
       </section>
-      <div class="plate-bracket-grid">
-        ${renderKnockoutBracket("Main ladder (slot order locked)", mainEntrants, "M")}
-        ${renderKnockoutBracket("Plate ladder (slot order locked)", plateEntrants, "P")}
-      </div>
     </div>
   `;
 }
@@ -337,7 +397,7 @@ function renderPlatePairing() {
   drawModeRandomBtn?.setAttribute("aria-pressed", String(platePairingMode === "random"));
   drawModeManualBtn?.setAttribute("aria-pressed", String(platePairingMode === "manual"));
 
-  platePairingHelp.textContent = "Random is selected for this draw mode. Use Re-draw to shuffle the draw.";
+  platePairingHelp.textContent = "Use Re-draw to reshuffle the qualifier round, or Initial draw to restore the original order.";
   platePairingStep.classList.add("hidden");
   platePairingSelected.classList.add("hidden");
   platePairingFinishedBtn?.classList.add("hidden");
@@ -345,9 +405,7 @@ function renderPlatePairing() {
   platePairingPairsData = pairing;
   platePairingAvailableTeams = [];
   platePairingSelection = null;
-  platePairingHelp.textContent = platePairingMode === "manual"
-    ? "Manual is selected. Teams keep their current order for the qualifier round. Winners move into Main and losers move into Plate."
-    : "Random is selected for this draw mode. Use Re-draw to reshuffle the qualifier round. Winners move into Main and losers move into Plate.";
+  platePairingHelp.textContent = "Use Re-draw to reshuffle the qualifier round, or Initial draw to restore the original order.";
   platePairingBye.classList.toggle("hidden", pairing.byeCount === 0);
   platePairingBye.textContent = pairing.byeCount > 0
     ? `${pairing.byeCount} BYE${pairing.byeCount === 1 ? "" : "s"} added so the knockout draw reaches ${pairing.bracketSize} teams.`
@@ -363,7 +421,7 @@ function renderPlatePairing() {
   } else {
     drawActions.classList.remove("hidden");
     redrawBtn?.classList.remove("hidden");
-    acceptBtn.classList.remove("hidden");
+    saveDrawBtn?.classList.remove("hidden");
   }
   updateDrawControlVisibility();
 }
@@ -389,8 +447,12 @@ function goToStep(step) {
     sectionNames.classList.add("hidden");
     results.classList.add("hidden");
     sectionLive.classList.add("hidden");
+    finalsPanel?.classList.add("hidden");
+    startPanel?.classList.add("hidden");
+    setFinalsSummaryVisibility(false);
     hideSplitDecision();
     setStep(1);
+    persistStepStateToDatabase();
     return;
   }
 
@@ -401,6 +463,7 @@ function goToStep(step) {
       ? readTeamNames()
       : (lastParams?.teams || []);
     showTeamNamesStep(fallbackTeamCount, fallbackTableCount, existingTeams);
+    persistStepStateToDatabase();
     return;
   }
 
@@ -410,21 +473,58 @@ function goToStep(step) {
       sectionNames.classList.add("hidden");
       results.classList.remove("hidden");
       sectionLive.classList.add("hidden");
+      finalsPanel?.classList.add("hidden");
+      startPanel?.classList.add("hidden");
+      setFinalsSummaryVisibility(false);
+      setScheduleSectionVisibility(lastParams.drawMode || "full");
       setStep(3);
       setDrawModeButtons(lastParams.drawMode || "full");
+      persistStepStateToDatabase();
       return;
     }
     return;
   }
 
   if (step === 4) {
-    if (isLocked || live) {
+    if (lastParams && lastSlots.length > 0) {
       sectionSettings.classList.add("hidden");
       sectionNames.classList.add("hidden");
       results.classList.add("hidden");
-      sectionLive.classList.remove("hidden");
+      sectionLive.classList.add("hidden");
+      finalsPanel?.classList.remove("hidden");
+      startPanel?.classList.add("hidden");
+      setFinalsSummaryVisibility(true);
       setStep(4);
+      persistStepStateToDatabase();
     }
+    return;
+  }
+
+  if (step === 5) {
+    if (lastParams && lastSlots.length > 0) {
+      sectionSettings.classList.add("hidden");
+      sectionNames.classList.add("hidden");
+      results.classList.add("hidden");
+      sectionLive.classList.add("hidden");
+      finalsPanel?.classList.add("hidden");
+      startPanel?.classList.remove("hidden");
+      setFinalsSummaryVisibility(false);
+      setStep(5);
+      persistStepStateToDatabase();
+    }
+    return;
+  }
+
+  if (step === 6 && live) {
+    sectionSettings.classList.add("hidden");
+    sectionNames.classList.add("hidden");
+    results.classList.add("hidden");
+    finalsPanel?.classList.add("hidden");
+    startPanel?.classList.add("hidden");
+    setFinalsSummaryVisibility(false);
+    sectionLive.classList.remove("hidden");
+    setStep(6);
+    persistStepStateToDatabase();
   }
 }
 
@@ -709,42 +809,56 @@ function parseMusterDateValue(value) {
   return new Date(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes), Number(seconds || "00"));
 }
 
+function normalizeMusterToFiveMinutes(dateValue) {
+  if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) return null;
+  const normalized = new Date(dateValue.getTime());
+  normalized.setSeconds(0, 0);
+  const roundedMinutes = Math.round(normalized.getMinutes() / 5) * 5;
+  normalized.setMinutes(roundedMinutes);
+  return normalized;
+}
+
 function formatMusterDateValue(value) {
   const parsed = parseMusterDateValue(value);
   if (!parsed) {
     return String(value || "").trim();
   }
+  const normalized = normalizeMusterToFiveMinutes(parsed);
+  if (!normalized) return String(value || "").trim();
 
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getDate()).padStart(2, "0");
-  const hours = String(parsed.getHours()).padStart(2, "0");
-  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  const year = normalized.getFullYear();
+  const month = String(normalized.getMonth() + 1).padStart(2, "0");
+  const day = String(normalized.getDate()).padStart(2, "0");
+  const hours = String(normalized.getHours()).padStart(2, "0");
+  const minutes = String(normalized.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 function formatMusterDateTimeLocalValue(value) {
   const parsed = parseMusterDateValue(value);
   if (!parsed) return "";
+  const normalized = normalizeMusterToFiveMinutes(parsed);
+  if (!normalized) return "";
 
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getDate()).padStart(2, "0");
-  const hours = String(parsed.getHours()).padStart(2, "0");
-  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  const year = normalized.getFullYear();
+  const month = String(normalized.getMonth() + 1).padStart(2, "0");
+  const day = String(normalized.getDate()).padStart(2, "0");
+  const hours = String(normalized.getHours()).padStart(2, "0");
+  const minutes = String(normalized.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 function getExpectedGamesPerMatch(bestOfGames) {
   if (bestOfGames <= 1) return 1;
   if (bestOfGames === 3) return 2.5;
-  if (bestOfGames === 5) return 3.5;
-  return Math.max(1, bestOfGames);
+  if (bestOfGames === 5) return 4.0;
+  if (bestOfGames === 7) return 5.5;
+  return 1;
 }
 
 function getMatchMinutes(gameMinutes, bestOfGames) {
   const expectedGames = getExpectedGamesPerMatch(bestOfGames);
-  return Math.max(1, Math.round((gameMinutes * expectedGames) / 5) * 5);
+  return Math.max(1, Math.round(gameMinutes * expectedGames));
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -754,8 +868,8 @@ function validateSettings({ teamCount, tableCount, gameMinutes, bestOfGames, fin
   if (!Number.isInteger(tableCount) || tableCount < 1)     return "Enter at least 1 table.";
   if (!Number.isInteger(gameMinutes) || gameMinutes < 1)   return "Enter a valid approximate time per game.";
   const normalizedBestOfGames = Number.isInteger(bestOfGames) ? bestOfGames : 3;
-  if (![1, 3, 5].includes(normalizedBestOfGames)) {
-    return "Choose a match format of Best of 1, 3, or 5.";
+  if (![1, 3, 5, 7].includes(normalizedBestOfGames)) {
+    return "Choose a match format of Best of 1, 3, 5, or 7.";
   }
   const visibilityDays = Number.parseInt(document.getElementById("tournament-public-days")?.value || "7", 10);
   const isPublic = Boolean(document.getElementById("tournament-public")?.checked);
@@ -810,16 +924,16 @@ function updateRefSettingVisibility() {
 
 function sanitizeBestOfGamesValue(value, fallback = 3) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
-  return [1, 3, 5].includes(parsed) ? parsed : fallback;
+  return [1, 3, 5, 7].includes(parsed) ? parsed : fallback;
 }
 
 function getFinalsTeamCountOptions(teamCount, drawMode = "full") {
   if (!Number.isInteger(teamCount) || teamCount < 2) return [];
   if (drawMode === "split") {
     const minPoolSize = Math.floor(teamCount / 2);
-    return [2, 4].filter((count) => count <= minPoolSize);
+    return [2, 4, 8].filter((count) => count <= minPoolSize);
   }
-  return [2, 4, 8, 16].filter((count) => count <= teamCount);
+  return [2, 4, 8].filter((count) => count <= teamCount);
 }
 
 function getFinalsRoundDefinitions(finalistsCount) {
@@ -850,16 +964,17 @@ function getFinalsRoundDefinitions(finalistsCount) {
   return rounds;
 }
 
-function buildDefaultFinalsBestOfMap(roundDefs) {
+function buildDefaultFinalsBestOfMap(roundDefs, tournamentBestOfGames = 3) {
+  const fallback = sanitizeBestOfGamesValue(tournamentBestOfGames, 3);
   const result = {};
   roundDefs.forEach((round) => {
-    result[round.key] = round.key === "final" ? 5 : 3;
+    result[round.key] = fallback;
   });
   return result;
 }
 
-function normalizeFinalsBestOfMap(roundDefs, sourceMap = {}) {
-  const defaults = buildDefaultFinalsBestOfMap(roundDefs);
+function normalizeFinalsBestOfMap(roundDefs, sourceMap = {}, tournamentBestOfGames = 3) {
+  const defaults = buildDefaultFinalsBestOfMap(roundDefs, tournamentBestOfGames);
   const normalized = {};
   roundDefs.forEach((round) => {
     normalized[round.key] = sanitizeBestOfGamesValue(sourceMap[round.key], defaults[round.key]);
@@ -879,23 +994,27 @@ function ensureFinalsControlState(teamCount, selectedFinalists = null, preferred
     return { finalists: 0, bestOfByRound: {} };
   }
 
-  const safeSelected = Number.parseInt(String(selectedFinalists ?? drawFinalsTeamCountSelect.value ?? ""), 10);
+  const currentSelected = drawFinalsTeamCountSelect.querySelector('input[name="draw-finals-team-count"]:checked');
+  const safeSelected = Number.parseInt(String(selectedFinalists ?? currentSelected?.value ?? ""), 10);
   const finalists = options.includes(safeSelected) ? safeSelected : options[0];
   drawFinalsTeamCountSelect.innerHTML = options.map((optionValue) => `
-    <option value="${optionValue}" ${optionValue === finalists ? "selected" : ""}>${optionValue}</option>
+    <label class="draw-format-option">
+      <input type="radio" name="draw-finals-team-count" value="${optionValue}" ${optionValue === finalists ? "checked" : ""}>
+      <span>${optionValue}</span>
+    </label>
   `).join("");
-  const finalsLabel = drawMode === "split" ? "Finalists per pool" : "Finalists";
-  drawFinalsTeamCountSelect.closest("label")?.querySelector("span")?.replaceChildren(finalsLabel);
+  drawFinalsTeamCountSelect.setAttribute("aria-label", drawMode === "split" ? "Finalists per pool" : "Finalists");
 
   const roundDefs = getFinalsRoundDefinitions(drawMode === "split" ? finalists * 2 : finalists);
-  const currentSelections = normalizeFinalsBestOfMap(roundDefs, preferredBestOfMap || {});
+  const tournamentBestOf = getSelectedBestOfGames();
+  const currentSelections = normalizeFinalsBestOfMap(roundDefs, preferredBestOfMap || {}, tournamentBestOf);
   drawFinalsRounds.innerHTML = roundDefs.map((round) => {
     const checkedValue = currentSelections[round.key];
     return `
       <label class="draw-finals-round-control">
         <span>${round.label} (${round.matches} match${round.matches === 1 ? "" : "es"})</span>
         <div class="draw-format-options" role="radiogroup" aria-label="${round.label} best of">
-          ${[1, 3, 5].map((value) => `
+          ${getFinalsBestOfOptions().map((value) => `
             <label class="draw-format-option">
               <input type="radio" name="draw-finals-best-of-${round.key}" value="${value}" ${value === checkedValue ? "checked" : ""}>
               <span>${value}</span>
@@ -916,7 +1035,7 @@ function ensureFinalsControlState(teamCount, selectedFinalists = null, preferred
 function readFinalsBestOfFromControls(finalistsCount) {
   const drawMode = lastParams?.drawMode || "full";
   const roundDefs = getFinalsRoundDefinitions(drawMode === "split" ? finalistsCount * 2 : finalistsCount);
-  const defaults = buildDefaultFinalsBestOfMap(roundDefs);
+  const defaults = buildDefaultFinalsBestOfMap(roundDefs, getSelectedBestOfGames());
   const result = {};
   roundDefs.forEach((round) => {
     const selected = drawFinalsRounds?.querySelector(`input[name="draw-finals-best-of-${round.key}"]:checked`);
@@ -925,20 +1044,157 @@ function readFinalsBestOfFromControls(finalistsCount) {
   return result;
 }
 
+function getFinalsBestOfOptions() {
+  return [1, 3, 5, 7];
+}
+
 function syncFinalsControlVisibility(drawMode, teamCount, selectedFinalists = null, preferredBestOfMap = null) {
   if (!drawFinalsControls) return { finalists: 0, bestOfByRound: {} };
-  if (drawMode === "plate") {
-    drawFinalsControls.classList.add("hidden");
-    return { finalists: 0, bestOfByRound: {} };
-  }
   return ensureFinalsControlState(teamCount, selectedFinalists, preferredBestOfMap, drawMode);
 }
 
 function getSelectedBestOfGames() {
   const select = document.getElementById("draw-best-of-games");
   const fromSelect = Number.parseInt(select?.value || "", 10);
-  if ([1, 3, 5].includes(fromSelect)) return fromSelect;
+  if ([1, 3, 5, 7].includes(fromSelect)) return fromSelect;
   return lastParams?.bestOfGames || 3;
+}
+
+function syncDraftParamsFromCurrentInputs() {
+  const settings = getSettingsParams();
+  const hasNameInputs = (teamNameGrid?.querySelectorAll(".team-name-input").length || 0) > 0;
+  let teams = hasNameInputs
+    ? readTeamNames()
+    : (Array.isArray(lastParams?.teams) && lastParams.teams.length ? [...lastParams.teams] : buildDefaultTeamNames(settings.teamCount));
+  if (!teams.length) {
+    teams = buildDefaultTeamNames(settings.teamCount);
+  }
+  const teamCount = Math.max(2, teams.length || settings.teamCount || 2);
+
+  lastParams = {
+    ...(lastParams || {}),
+    ...settings,
+    teamCount,
+    teams: [...teams],
+    initialTeams: Array.isArray(lastParams?.initialTeams) && lastParams.initialTeams.length
+      ? [...lastParams.initialTeams]
+      : [...teams],
+    drawMode: lastParams?.drawMode || "full",
+    drawOrderMode: lastParams?.drawOrderMode || "initial",
+    drawData: lastParams?.drawData || null,
+    firstRoundRefAssignments: lastParams?.firstRoundRefAssignments || {},
+    firstRoundRefRequiredTables: lastParams?.firstRoundRefRequiredTables || [],
+  };
+}
+
+function persistStepStateToDatabase() {
+  if (location.protocol === "file:" || !sessionId) return;
+  if (!lastParams || !lastSlots?.length) {
+    syncDraftParamsFromCurrentInputs();
+  }
+  void sendState();
+}
+
+function sanitizeAutoLockMinutes(value, fallback = 15) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(240, Math.max(0, parsed));
+}
+
+function isStartPanelVisible() {
+  return Boolean(startPanel) && !startPanel.classList.contains("hidden");
+}
+
+function getAutoLockMinutes() {
+  return sanitizeAutoLockMinutes(lastParams?.autoLockMinutes, 15);
+}
+
+function isAutoStartEnabled() {
+  return Boolean(lastParams?.autoStartEnabled);
+}
+
+function syncStartAutomationControls() {
+  if (!lastParams) return;
+  const autoLockMinutes = getAutoLockMinutes();
+  const autoStartEnabled = isAutoStartEnabled();
+  lastParams.autoLockMinutes = autoLockMinutes;
+  lastParams.autoStartEnabled = autoStartEnabled;
+  if (autoLockMinutesInput) autoLockMinutesInput.value = String(autoLockMinutes);
+  if (autoStartEnabledInput) autoStartEnabledInput.checked = autoStartEnabled;
+}
+
+function applyStartAutomationInputsToParams() {
+  if (!lastParams) return;
+  const fallbackMinutes = getAutoLockMinutes();
+  if (autoLockMinutesInput) {
+    lastParams.autoLockMinutes = sanitizeAutoLockMinutes(autoLockMinutesInput.value, fallbackMinutes);
+    autoLockMinutesInput.value = String(lastParams.autoLockMinutes);
+  }
+  if (autoStartEnabledInput) {
+    lastParams.autoStartEnabled = Boolean(autoStartEnabledInput.checked);
+  }
+}
+
+function updateStartAutomationStatus() {
+  if (!startAutomationStatus) return;
+  if (!lastParams) {
+    startAutomationStatus.textContent = "";
+    return;
+  }
+
+  const autoLockMinutes = getAutoLockMinutes();
+  const autoStartEnabled = isAutoStartEnabled();
+  const musterDate = parseMusterDateValue(lastParams.musterDate);
+  if (!musterDate) {
+    startAutomationStatus.textContent = "Set Muster Date/Time in Settings to enable auto-lock and auto-start.";
+    return;
+  }
+
+  const summary = [];
+  if (autoLockMinutes > 0) {
+    const lockAt = new Date(musterDate.getTime() - (autoLockMinutes * 60 * 1000));
+    summary.push(`Auto-lock at ${formatDateTimeForDisplay(lockAt)} (${autoLockMinutes} min before muster).`);
+  } else {
+    summary.push("Auto-lock disabled.");
+  }
+  summary.push(autoStartEnabled ? `Auto-start at ${formatDateTimeForDisplay(musterDate)}.` : "Auto-start disabled.");
+  startAutomationStatus.textContent = summary.join(" ");
+}
+
+function maybeRunStartAutomation() {
+  if (!lastParams || !lastSlots?.length || live) {
+    return;
+  }
+  const musterDate = parseMusterDateValue(lastParams.musterDate);
+  if (!musterDate) {
+    updateStartAutomationStatus();
+    return;
+  }
+
+  const nowMs = Date.now();
+  const musterMs = musterDate.getTime();
+  const autoLockMinutes = getAutoLockMinutes();
+  const autoStartEnabled = isAutoStartEnabled();
+  const shouldAutoLock = autoLockMinutes > 0 && nowMs >= (musterMs - (autoLockMinutes * 60 * 1000));
+
+  if (shouldAutoLock && !isLocked) {
+    lockDraw();
+  }
+  if (autoStartEnabled && nowMs >= musterMs) {
+    if (!isLocked) {
+      lockDraw();
+    }
+    startDraw();
+    return;
+  }
+  updateStartAutomationStatus();
+}
+
+function ensureStartAutomationTimer() {
+  if (startAutomationTimer) return;
+  startAutomationTimer = setInterval(() => {
+    maybeRunStartAutomation();
+  }, 15000);
 }
 
 function getSettingsParams() {
@@ -960,6 +1216,12 @@ function getSettingsParams() {
   const visibilityDays = Number.parseInt(document.getElementById("tournament-public-days")?.value || "7", 10);
   const refsEligible = canUseRefSettings(teamCount, tableCount);
   const refsEnabled = refsEligible && Boolean(refEnabledInput?.checked);
+  const autoLockMinutes = isStartPanelVisible() && autoLockMinutesInput
+    ? sanitizeAutoLockMinutes(autoLockMinutesInput.value, sanitizeAutoLockMinutes(lastParams?.autoLockMinutes, 15))
+    : sanitizeAutoLockMinutes(lastParams?.autoLockMinutes, 15);
+  const autoStartEnabled = isStartPanelVisible() && autoStartEnabledInput
+    ? Boolean(autoStartEnabledInput.checked)
+    : Boolean(lastParams?.autoStartEnabled);
   return {
     teamCount,
     tableCount,
@@ -976,6 +1238,8 @@ function getSettingsParams() {
     loserRefMode: refsEnabled ? "loser-next-game" : "none",
     finalsTeamCount: finalsControlState.finalists,
     finalsBestOfByRound: finalsControlState.bestOfByRound,
+    autoLockMinutes,
+    autoStartEnabled,
   };
 }
 
@@ -986,7 +1250,7 @@ function hideSplitDecision() {
 }
 
 function shouldOfferSplitDecision(params) {
-  return params.tableCount >= 2 && params.teamCount > params.tableCount * 3;
+  return false;
 }
 
 function showSplitDecision(params, teams) {
@@ -1047,6 +1311,16 @@ function renderPoolSummary(section, hintEl, gridEl, groups, teamNumbers, options
     </article>
   `).join("");
   section.classList.remove("hidden");
+}
+
+function setFinalsSummaryVisibility(visible) {
+  if (!finalsSummarySection) return;
+  if (!visible) {
+    finalsSummarySection.classList.add("hidden");
+    return;
+  }
+  const hasContent = Boolean(finalsSummaryGrid?.innerHTML?.trim());
+  finalsSummarySection.classList.toggle("hidden", !hasContent);
 }
 
 function renderFinalsSummary(section, hintEl, gridEl, finals) {
@@ -1123,8 +1397,10 @@ function updateEstimatedTimeSummary(matchMinutes) {
 
 function applyBestOfGamesToCurrentDraw() {
   if (!lastParams || !lastSlots) return;
+  const wasOnFinalsStep = Boolean(finalsPanel) && !finalsPanel.classList.contains("hidden");
   const bestOfGames = getSelectedBestOfGames();
-  const finalsTeamCount = Number.parseInt(drawFinalsTeamCountSelect?.value || String(lastParams.finalsTeamCount || "0"), 10) || 0;
+  const selectedFinalistsInput = drawFinalsTeamCountSelect?.querySelector('input[name="draw-finals-team-count"]:checked');
+  const finalsTeamCount = Number.parseInt(selectedFinalistsInput?.value || String(lastParams.finalsTeamCount || "0"), 10) || 0;
   const finalsBestOfByRound = readFinalsBestOfFromControls(finalsTeamCount);
   const rerunParams = {
     ...lastParams,
@@ -1135,60 +1411,157 @@ function applyBestOfGamesToCurrentDraw() {
   runDraw(rerunParams, lastParams.initialTeams || lastParams.teams, lastParams.drawMode || "full", {
     teamOrder: lastParams.teams,
   });
+  if (wasOnFinalsStep) {
+    showFinalsStep();
+  }
 }
 
 // ─── Step 1 → Step 2: build team name inputs ──────────────────────────────────
 
-function showTeamNamesStep(teamCount, tableCount, existingTeams = []) {
-  teamNameGrid.innerHTML = "";
-  ensureFinalsControlState(teamCount, null, null, "full");
+function buildDefaultTeamNames(teamCount) {
+  return Array.from({ length: teamCount }, (_, index) => `Team ${index + 1}`);
+}
 
-  for (let i = 1; i <= teamCount; i++) {
-   const existingName = existingTeams[i - 1] || `Team ${i}`;
-   const label = document.createElement("label");
-   label.innerHTML = `
-     <span>Team ${i}</span>
-     <input type="text" class="team-name-input" maxlength="40"
-            placeholder="Team ${i}" value="${existingName}" data-index="${i - 1}">
-   `;
-   teamNameGrid.appendChild(label);
+function getMaxTeamCountValue() {
+  const parsed = Number.parseInt(String(teamCountInput?.value || lastParams?.teamCount || "0"), 10);
+  return Number.isInteger(parsed) && parsed >= 2 ? parsed : 2;
+}
+
+function syncSettingsTeamCountToNames() {
+  const currentCount = teamNameGrid?.querySelectorAll(".team-name-input").length || 0;
+  if (!currentCount) return;
+  const maxCount = getMaxTeamCountValue();
+  if (teamCountInput) {
+    teamCountInput.value = String(Math.max(maxCount, currentCount));
   }
+  updateRefSettingVisibility();
+}
 
+function createTeamNameItem(teamName, index) {
+  const row = document.createElement("div");
+  row.className = "team-name-item";
+  const label = document.createElement("span");
+  label.className = "team-name-item-label";
+  label.textContent = `Team ${index + 1}`;
+
+  const inputRow = document.createElement("div");
+  inputRow.className = "team-name-input-row";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "team-name-input";
+  input.maxLength = 40;
+  input.placeholder = `Team ${index + 1}`;
+  input.value = teamName;
+  input.dataset.index = String(index);
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "btn-secondary delete-team-btn";
+  deleteBtn.dataset.deleteIndex = String(index);
+  deleteBtn.setAttribute("aria-label", `Delete Team ${index + 1}`);
+  deleteBtn.textContent = "✕";
+
+  inputRow.appendChild(input);
+  inputRow.appendChild(deleteBtn);
+  row.appendChild(label);
+  row.appendChild(inputRow);
+  return row;
+}
+
+function renderTeamNameGrid(teams) {
+  teamNameGrid.innerHTML = "";
+  const visibleTeams = Array.isArray(teams)
+    ? teams.filter((teamName) => String(teamName || "").trim().length > 0)
+    : [];
+  visibleTeams.forEach((teamName, index) => {
+    const safeName = String(teamName || "").trim() || `Team ${index + 1}`;
+    teamNameGrid.appendChild(createTeamNameItem(safeName, index));
+  });
+  syncSettingsTeamCountToNames();
+}
+
+function showTeamNamesStep(teamCount, tableCount, existingTeams = []) {
+  const normalizedTeamCount = Math.max(2, Number.parseInt(String(teamCount || "0"), 10) || 2);
+  const teams = Array.isArray(existingTeams) && existingTeams.length
+    ? [...existingTeams]
+    : buildDefaultTeamNames(normalizedTeamCount);
+
+  renderTeamNameGrid(teams);
+  ensureFinalsControlState(teams.length, null, null, "full");
   hideSplitDecision();
 
   sectionSettings.classList.add("hidden");
   sectionNames.classList.remove("hidden");
   results.classList.add("hidden");
+  setFinalsSummaryVisibility(false);
+  finalsPanel?.classList.add("hidden");
+  startPanel?.classList.add("hidden");
+  sectionLive?.classList.add("hidden");
   setStep(2);
   updateTeamNamesStepMode();
   syncEditingControls();
+  syncDraftParamsFromCurrentInputs();
+  persistStepStateToDatabase();
 }
 
 // ─── Step 2 → Step 3: generate the draw ──────────────────────────────────────
 
 function readTeamNames() {
-  return Array.from(document.querySelectorAll(".team-name-input")).map((input, i) => {
-    const v = input.value.trim();
-    return v.length > 0 ? v : `Team ${i + 1}`;
-  });
+  return Array.from(document.querySelectorAll(".team-name-input"))
+    .map((input) => input.value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function addTeamInNamesStep() {
+  if (editingFrozen) return;
+  const maxTeamCount = getMaxTeamCountValue();
+  const teams = readTeamNames();
+  if (teams.length >= maxTeamCount) {
+    alert(`You can add up to ${maxTeamCount} teams in this tournament.`);
+    return;
+  }
+  teams.push(`Team ${teams.length + 1}`);
+  renderTeamNameGrid(teams);
+  ensureFinalsControlState(teams.length, null, null, "full");
+  updateTeamNamesStepMode();
+  syncEditingControls();
+}
+
+function deleteTeamInNamesStep(indexToDelete) {
+  if (editingFrozen) return;
+  const teams = readTeamNames();
+  if (teams.length <= 2) {
+    alert("At least 2 teams are required.");
+    return;
+  }
+  if (!Number.isInteger(indexToDelete) || indexToDelete < 0 || indexToDelete >= teams.length) return;
+  teams.splice(indexToDelete, 1);
+  renderTeamNameGrid(teams);
+  ensureFinalsControlState(teams.length, null, null, "full");
+  updateTeamNamesStepMode();
+  syncEditingControls();
 }
 
 function updateTeamNamesStepMode() {
-  const teamCount = teamNameGrid?.querySelectorAll(".team-name-input").length || lastParams?.teamCount || 0;
+  const actualTeamCount = readTeamNames().length || teamNameGrid?.querySelectorAll(".team-name-input").length || lastParams?.teamCount || 0;
+  const teamCount = actualTeamCount;
   if (editingFrozen) {
     if (generateDrawBtn) generateDrawBtn.textContent = "Save Names";
+    if (addTeamBtn) addTeamBtn.classList.add("hidden");
     if (namesDescription) {
-      namesDescription.textContent = `${teamCount} teams · edit the names below, then save the updated names.`;
+      namesDescription.textContent = `${teamCount} teams · live play has started, so only team name spelling edits are allowed.`;
     }
     if (backBtn) backBtn.classList.add("hidden");
     return;
   }
 
+  if (addTeamBtn) addTeamBtn.classList.remove("hidden");
   if (backBtn) backBtn.classList.remove("hidden");
 
   if (generateDrawBtn) generateDrawBtn.textContent = "Generate draw →";
   if (namesDescription) {
-    namesDescription.textContent = `${teamCount} teams · edit the names below, then generate the draw.`;
+    namesDescription.textContent = `${teamCount} teams · edit names, add teams, or delete teams, then generate the draw.`;
   }
 }
 
@@ -1308,6 +1681,81 @@ function buildDrawData(params, teams, drawMode) {
   const isPlate = drawMode === "plate";
 
   if (!shouldSplit) {
+    if (isPlate) {
+      const pairing = buildPlatePairings(arrangedTeams);
+      const qualifierMatches = pairing.matches.map((match, index) => ({
+        id: match.id,
+        label: `Q${index + 1}`,
+        teamA: match.teamA,
+        teamB: match.teamB,
+        seedA: match.seedA,
+        seedB: match.seedB,
+      }));
+      const mainEntrants = pairing.matches.map((match) => knockoutAdvanceLabel(
+        match.teamA,
+        match.teamB,
+        `Q${match.id}`,
+        "winner",
+        match.seedA,
+        match.seedB
+      ));
+      const plateEntrants = pairing.matches.map((match) => knockoutAdvanceLabel(
+        match.teamA,
+        match.teamB,
+        `Q${match.id}`,
+        "loser",
+        match.seedA,
+        match.seedB
+      ));
+      const qualifierRounds = [{
+        roundLabel: knockoutRoundLabel(pairing.bracketSize),
+        label: "Qualifier round",
+        matches: qualifierMatches,
+      }];
+      const mainRounds = buildKnockoutBracket(mainEntrants, "M");
+      const plateRounds = buildKnockoutBracket(plateEntrants, "P");
+      const allRounds = [...qualifierRounds, ...mainRounds, ...plateRounds];
+      const knockoutData = buildKnockoutSlotsAndMatches(allRounds, allTableNumbers, "plate", "Plate knockout", minMinutes);
+      const shouldAddPlateFinals = Number.isInteger(params.finalsTeamCount) && params.finalsTeamCount >= 2;
+      const plateFinalsRounds = shouldAddPlateFinals
+        ? buildFinalsBracketRounds(params.finalsTeamCount, params.finalsBestOfByRound || {})
+        : [];
+      const plateFinalsData = shouldAddPlateFinals
+        ? buildFinalsSlotsAndMatches(params, plateFinalsRounds)
+        : { slots: [], matches: [], totalMatches: 0, summaryText: "" };
+      const allPlateSlots = [...knockoutData.slots, ...plateFinalsData.slots];
+      const qualifierSummary = `${pairing.matches.length} qualifier matches${pairing.byeCount > 0 ? ` · ${pairing.byeCount} BYE${pairing.byeCount === 1 ? "" : "s"}` : ""}`;
+      return {
+        splitMode: false,
+        drawMode,
+        slots: allPlateSlots,
+        roundsCount: allRounds.length + plateFinalsRounds.length,
+        matches: [...knockoutData.matches, ...plateFinalsData.matches],
+        groupSummary: shouldAddPlateFinals
+          ? `Plate knockout draw · ${qualifierSummary} · then main and plate knockout ladders + top ${params.finalsTeamCount} finals knockout`
+          : `Plate knockout draw · ${qualifierSummary} · then main and plate knockout ladders`,
+        groups: [
+          {
+            id: "plate",
+            label: "Qualifier",
+            teams: arrangedTeams,
+            tables: allTableNumbers,
+          },
+        ],
+        totalMatches: knockoutData.totalMatches + plateFinalsData.totalMatches,
+        minMinutes,
+        maxMinutes: minMinutes,
+        finals: {
+          enabled: shouldAddPlateFinals,
+          teamCount: shouldAddPlateFinals ? params.finalsTeamCount : 0,
+          finalistsPerPool: 0,
+          rounds: plateFinalsRounds,
+          summaryText: plateFinalsData.summaryText,
+          mode: "full",
+        },
+      };
+    }
+
     const rounds = buildRounds(arrangedTeams);
     const baseSlots = combineSlots([buildSlots(rounds, allTableNumbers, "all", "Round")]).map((slot) => ({
       ...slot,
@@ -1355,9 +1803,8 @@ function buildDrawData(params, teams, drawMode) {
     };
   }
 
-  const half = Math.ceil(arrangedTeams.length / 2);
-  const poolATeams = arrangedTeams.slice(0, half);
-  const poolBTeams = arrangedTeams.slice(half);
+  const poolATeams = arrangedTeams.filter((_, index) => index % 2 === 0);
+  const poolBTeams = arrangedTeams.filter((_, index) => index % 2 === 1);
   const poolATables = allTableNumbers.slice(0, Math.ceil(tableCount / 2));
   const poolBTables = allTableNumbers.slice(Math.ceil(tableCount / 2));
 
@@ -1508,10 +1955,13 @@ function runDraw(params, teams, drawMode, options = {}) {
   const normalizedParams = {
     ...params,
     teamCount,
-    finalsTeamCount: (drawMode === "full" || drawMode === "split") ? finalsControlState.finalists : 0,
-    finalsBestOfByRound: (drawMode === "full" || drawMode === "split") ? finalsControlState.bestOfByRound : {},
+    finalsTeamCount: (drawMode === "full" || drawMode === "split" || drawMode === "plate") ? finalsControlState.finalists : 0,
+    finalsBestOfByRound: (drawMode === "full" || drawMode === "split" || drawMode === "plate") ? finalsControlState.bestOfByRound : {},
   };
-  const { tableCount, minMinutes } = normalizedParams;
+  const recalculatedMatchMinutes = getMatchMinutes(normalizedParams.gameMinutes || 18, normalizedParams.bestOfGames || 3);
+  normalizedParams.minMinutes = recalculatedMatchMinutes;
+  normalizedParams.maxMinutes = recalculatedMatchMinutes;
+  const { tableCount } = normalizedParams;
   const initialTeams = Array.isArray(params.initialTeams) && params.initialTeams.length
     ? [...params.initialTeams]
     : [...teams];
@@ -1558,7 +2008,7 @@ function runDraw(params, teams, drawMode, options = {}) {
   totalMatchesEl.textContent  = String(totalMatches);
   totalRoundsEl.textContent   = String(drawData.roundsCount);
   totalSlotsEl.textContent    = String(slots.length);
-  updateEstimatedTimeSummary(minMinutes);
+  updateEstimatedTimeSummary(recalculatedMatchMinutes);
   scheduleDescriptionEl.textContent = buildScheduleDescription(
     { ...normalizedParams, teams: drawTeams },
     drawData,
@@ -1575,7 +2025,7 @@ function runDraw(params, teams, drawMode, options = {}) {
     {
       splitMode: drawData.splitMode,
       hintText: drawData.splitMode
-        ? "Re-draw to reshuffle the random pools until the operator is happy, then accept the draw. During live play, both pools can use any free table."
+        ? "Pool 1 uses odd-position teams and Pool 2 uses even-position teams. Re-draw randomizes team order before re-splitting."
         : "Re-draw until the operator is happy, then accept the draw.",
     }
   );
@@ -1625,29 +2075,108 @@ function runDraw(params, teams, drawMode, options = {}) {
 
   sectionNames.classList.add("hidden");
   results.classList.remove("hidden");
+  setScheduleSectionVisibility(drawMode);
+  setFinalsSummaryVisibility(false);
+  finalsPanel?.classList.add("hidden");
+  startPanel?.classList.add("hidden");
+  sectionLive?.classList.add("hidden");
   setStep(3);
   setDrawModeButtons(drawMode);
   syncBestOfGamesControl();
   syncEditingControls();
+  persistStepStateToDatabase();
 }
 
 // ─── Lock / Accept ────────────────────────────────────────────────────────────
 
-function acceptDraw() {
-  // Don't lock immediately - allow re-editing until tournament starts (muster time)
-  // isLocked will be set to true only when:
-  // 1. The first match starts, OR
-  // 2. Muster time is reached
+function showFinalsStep() {
+  sectionSettings?.classList.add("hidden");
+  sectionNames?.classList.add("hidden");
+  results?.classList.add("hidden");
+  sectionLive?.classList.add("hidden");
+  setFinalsSummaryVisibility(true);
+  finalsPanel?.classList.remove("hidden");
+  startPanel?.classList.add("hidden");
+  setStep(4);
+  persistStepStateToDatabase();
+}
+
+function showStartStep() {
+  sectionSettings?.classList.add("hidden");
+  sectionNames?.classList.add("hidden");
+  results?.classList.add("hidden");
+  sectionLive?.classList.add("hidden");
+  setFinalsSummaryVisibility(false);
+  finalsPanel?.classList.add("hidden");
+  startPanel?.classList.remove("hidden");
+  syncStartAutomationControls();
+  updateStartAutomationStatus();
+  maybeRunStartAutomation();
+  if (live) return;
+  updateLockButtonState();
+  setStep(5);
+  persistStepStateToDatabase();
+}
+
+function saveDraw() {
+  if (!lastParams || !lastSlots?.length) return;
+  isLocked = false;
+  editingFrozen = false;
+  lockedBadge.classList.add("hidden");
+  syncStartAutomationControls();
+  updateStartAutomationStatus();
+  updateLockButtonState();
+  showStartStep();
+  sendState();
+}
+
+function lockDraw() {
+  isLocked = true;
+  editingFrozen = true;
+  updateLockButtonState();
+  lockedBadge.classList.add("hidden");
+  startPanel?.classList.remove("hidden");
+  drawActions?.classList.add("hidden");
+  updateTeamNamesStepMode();
+  syncEditingControls();
+  updateStartAutomationStatus();
+  sendState();
+}
+
+function unlockDraw() {
+  isLocked = false;
+  editingFrozen = false;
+  updateLockButtonState();
+  lockedBadge.classList.add("hidden");
+  drawActions?.classList.remove("hidden");
+  startPanel?.classList.remove("hidden");
+  updateTeamNamesStepMode();
+  syncEditingControls();
+  updateStartAutomationStatus();
+  sendState();
+}
+
+function startDraw() {
+  if (!lastParams || !lastSlots?.length) return;
+  isLocked = true;
+  editingFrozen = true;
+  updateLockButtonState();
+  lockedBadge.classList.remove("hidden");
+  startPanel?.classList.add("hidden");
+  updateStartAutomationStatus();
   initLiveBoard(lastSlots, lastParams.tableCount, lastParams.teams, lastParams.drawData);
 }
 
 function freezeEditing() {
   if (editingFrozen) return;
+  isLocked = true;
   editingFrozen = true;
-  lockedBadge.classList.remove("hidden");
+  updateLockButtonState();
+  lockedBadge.classList.add("hidden");
   drawActions.classList.add("hidden");
   updateTeamNamesStepMode();
   syncEditingControls();
+  updateStartAutomationStatus();
 }
 
 // ─── Event wiring ─────────────────────────────────────────────────────────────
@@ -1689,6 +2218,26 @@ setAdvancedSettingsOpen(false);
 document.getElementById("tournament-public")?.addEventListener("change", syncTournamentVisibilityInputs);
 syncTournamentVisibilityInputs();
 
+autoLockMinutesInput?.addEventListener("change", () => {
+  if (!lastParams) return;
+  applyStartAutomationInputsToParams();
+  syncStartAutomationControls();
+  updateStartAutomationStatus();
+  void sendState();
+  maybeRunStartAutomation();
+});
+
+autoStartEnabledInput?.addEventListener("change", () => {
+  if (!lastParams) return;
+  applyStartAutomationInputsToParams();
+  syncStartAutomationControls();
+  updateStartAutomationStatus();
+  void sendState();
+  maybeRunStartAutomation();
+});
+
+ensureStartAutomationTimer();
+
 form?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const params = getSettingsParams();
@@ -1703,16 +2252,32 @@ backBtn?.addEventListener("click", () => {
   goToStep(1);
 });
 
+addTeamBtn?.addEventListener("click", () => {
+  addTeamInNamesStep();
+});
+
+teamNameGrid?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const deleteBtn = target.closest(".delete-team-btn");
+  if (!deleteBtn) return;
+  const deleteIndex = Number.parseInt(deleteBtn.dataset.deleteIndex || "-1", 10);
+  deleteTeamInNamesStep(deleteIndex);
+});
+
 generateDrawBtn?.addEventListener("click", () => {
   if (editingFrozen) {
     saveTeamNames();
     return;
   }
-  const params = getSettingsParams();
+  const teams = readTeamNames();
+  const params = {
+    ...getSettingsParams(),
+    teamCount: teams.length,
+  };
   const err = validateSettings(params);
   if (formError) formError.textContent = err;
   if (err) return;
-  const teams = readTeamNames();
   if (shouldOfferSplitDecision(params)) {
     showSplitDecision(params, teams);
     return;
@@ -1767,15 +2332,17 @@ document.querySelectorAll('input[name="drawBestOfGames"]').forEach((radio) => {
 });
 
 drawFinalsTeamCountSelect?.addEventListener("change", () => {
-  const activeDrawMode = lastParams?.drawMode === "split" ? "split" : "full";
+  const wasOnFinalsStep = Boolean(finalsPanel) && !finalsPanel.classList.contains("hidden");
+  const activeDrawMode = lastParams?.drawMode || "full";
   const teamCount = Number.parseInt(teamCountInput?.value || String(lastParams?.teamCount || "0"), 10);
+  const selectedFinalists = Number.parseInt(drawFinalsTeamCountSelect?.querySelector('input[name="draw-finals-team-count"]:checked')?.value || "0", 10) || null;
   const finalsState = ensureFinalsControlState(
     teamCount,
-    drawFinalsTeamCountSelect.value,
-    readFinalsBestOfFromControls(Number.parseInt(drawFinalsTeamCountSelect.value || "0", 10)),
+    selectedFinalists,
+    readFinalsBestOfFromControls(selectedFinalists || 0),
     activeDrawMode
   );
-  if (!lastParams || editingFrozen || (lastParams.drawMode !== "full" && lastParams.drawMode !== "split")) return;
+  if (!lastParams || editingFrozen || (lastParams.drawMode !== "full" && lastParams.drawMode !== "split" && lastParams.drawMode !== "plate")) return;
   runDraw(
     {
       ...lastParams,
@@ -1786,13 +2353,16 @@ drawFinalsTeamCountSelect?.addEventListener("change", () => {
     lastParams.drawMode,
     { teamOrder: lastParams.teams }
   );
+  if (wasOnFinalsStep) {
+    showFinalsStep();
+  }
 });
 
 drawFinalsRounds?.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   if (!target.name.startsWith("draw-finals-best-of-")) return;
-  if (!lastParams || editingFrozen || (lastParams.drawMode !== "full" && lastParams.drawMode !== "split")) return;
+  if (!lastParams || editingFrozen || (lastParams.drawMode !== "full" && lastParams.drawMode !== "split" && lastParams.drawMode !== "plate")) return;
   applyBestOfGamesToCurrentDraw();
 });
 
@@ -1881,8 +2451,7 @@ initialSortBtn?.addEventListener("click", () => {
   runDraw(lastParams, lastParams.initialTeams || lastParams.teams, lastParams.drawMode, { orderMode: "initial" });
 });
 
-acceptBtn?.addEventListener("click", () => {
-  if (editingFrozen) return;
+function canFinalizeDrawSelection() {
   if (lastParams?.refsEnabled && lastParams?.refMode === "manual") {
     const requiredTables = lastParams.firstRoundRefRequiredTables || [];
     const selectedRefs = lastParams.firstRoundRefAssignments || {};
@@ -1891,14 +2460,45 @@ acceptBtn?.addEventListener("click", () => {
       return typeof refTeam === "string" && refTeam.length > 0;
     });
     if (!allSelected) {
-      alert("Please select a first-round referee team for every table before accepting the draw.");
-      return;
+      alert("Please select a first-round referee team for every table before continuing.");
+      return false;
     }
   }
-  acceptDraw();
+  return true;
+}
+
+finalsNextBtn?.addEventListener("click", () => {
+  if (editingFrozen) return;
+  if (!canFinalizeDrawSelection()) return;
+  showFinalsStep();
 });
 
-[step1Pill, step2Pill, step3Pill, step4Pill].forEach((pill) => {
+saveDrawBtn?.addEventListener("click", () => {
+  if (editingFrozen) return;
+  if (!canFinalizeDrawSelection()) return;
+  saveDraw();
+});
+
+toggleLockBtn?.addEventListener("click", () => {
+  if (!canFinalizeDrawSelection()) return;
+  if (isLocked) {
+    unlockDraw();
+    return;
+  }
+  lockDraw();
+});
+
+startDrawBtn?.addEventListener("click", () => {
+  if (!canFinalizeDrawSelection()) return;
+  if (editingFrozen || isLocked) {
+    startDraw();
+    return;
+  }
+  lockDraw();
+  startDraw();
+});
+
+getStepPills().forEach((pill) => {
   pill?.addEventListener("click", () => {
     const step = Number.parseInt(pill.dataset.step || "0", 10);
     if (!step) return;
